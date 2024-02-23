@@ -4,7 +4,7 @@ const siteMetadata = {
   author: 'Jean-Marc Möckel',
   headerTitle: 'Jean-Marc Möckel',
   description:
-    "Explore my Fullstack Development Portfolio, specializing in TypeScript, React, Nest.js, blockchain, DevOps, and Software Architecture. Let's build innovative digital solutions together!",
+    'Explore my portfolio, where I mainly write about Fullstack development with Typescript and build projects mainly with React and Nest.js',
   language: 'en-us',
   theme: 'system', // system, dark or light
   siteUrl: 'https://jean-marc.io',
@@ -46,7 +46,7 @@ const siteMetadata = {
   newsletter: {
     // supports mailchimp, buttondown, convertkit, klaviyo, revue, emailoctopus
     // Please add your .env file and modify it according to your selection
-    provider: 'buttondown',
+    provider: '',
   },
   comments: {
     // If you want to use an analytics provider you have to add it to the
