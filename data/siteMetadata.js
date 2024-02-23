@@ -17,7 +17,7 @@ const siteMetadata = {
   // twitter: 'https://twitter.com/Twitter',
   // facebook: 'https://facebook.com',
   // youtube: 'https://youtube.com',
-  // linkedin: 'https://www.linkedin.com',
+  linkedin: 'https://www.linkedin.com/in/jean-marc-m%C3%B6ckel-56153a1a0/',
   // threads: 'https://www.threads.net',
   instagram: 'https://www.instagram.com/jeanmarcmoeckel',
   locale: 'en-US',
