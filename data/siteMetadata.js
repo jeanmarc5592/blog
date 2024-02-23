@@ -13,7 +13,7 @@ const siteMetadata = {
   // socialBanner: '/static/images/twitter-card.png',
   // mastodon: 'https://mastodon.social/@mastodonuser',
   email: 'hello@jean-marc.io',
-  // github: 'https://github.com',
+  github: 'https://github.com/jeanmarc5592',
   // twitter: 'https://twitter.com/Twitter',
   // facebook: 'https://facebook.com',
   // youtube: 'https://youtube.com',
