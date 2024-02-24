@@ -42,7 +42,7 @@ export default function AuthorLayout({ children, content }: Props) {
             <div className="mt-10">
               <a
                 style={{ color: '#1B2329', textDecoration: 'none' }}
-                className="rounded-sm bg-primary-400 px-8 py-4 font-medium"
+                className="rounded-sm bg-primary-500 px-8 py-4 font-medium"
                 target="_blank"
                 href="/static/images/resume.png"
               >
