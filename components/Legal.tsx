@@ -19,7 +19,7 @@ export default function Legal({ legalTexts }: LegalProps) {
   }
 
   return (
-    <>
+    <div className="w-full">
       <div className="mb-8 flex">
         <button
           onClick={() => setLanguage('de')}
@@ -38,9 +38,9 @@ export default function Legal({ legalTexts }: LegalProps) {
           EN
         </button>
       </div>
-      <div className="prose dark:prose-invert">
+      <div className="prose max-w-none dark:prose-invert">
         <MDXLayoutRenderer code={legalText?.body.code || ''} />
       </div>
-    </>
+    </div>
   )
 }
