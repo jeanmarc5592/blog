@@ -138,9 +138,19 @@ export const LegalNotice = defineDocumentType(() => ({
   computedFields,
 }))
 
+export const PrivacyPolicy = defineDocumentType(() => ({
+  name: 'PrivacyPolicy',
+  filePathPattern: 'privacy-policy/**/*.mdx',
+  contentType: 'mdx',
+  fields: {
+    language: { type: 'enum', options: ['DE', 'EN'], required: true },
+  },
+  computedFields,
+}))
+
 export default makeSource({
   contentDirPath: 'data',
-  documentTypes: [Blog, Authors, LegalNotice],
+  documentTypes: [Blog, Authors, LegalNotice, PrivacyPolicy],
   mdx: {
     cwd: process.cwd(),
     remarkPlugins: [

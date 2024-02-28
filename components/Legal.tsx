@@ -1,11 +1,11 @@
 'use client'
 
-import { LegalNotice } from 'contentlayer/generated'
+import { LegalNotice, PrivacyPolicy } from 'contentlayer/generated'
 import { MDXLayoutRenderer } from 'pliny/mdx-components'
 import { useState } from 'react'
 
 interface LegalProps {
-  legalTexts: LegalNotice[]
+  legalTexts: LegalNotice[] | PrivacyPolicy[]
 }
 
 type LegalLanguages = 'de' | 'en'
