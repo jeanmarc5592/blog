@@ -1,7 +1,7 @@
 ---
 title: 'Validating environment variables in Nest.js'
 date: '2024-01-27'
-tags: ['Nest.js']
+tags: ['Nest.js', 'Docker', 'Docker Compose']
 ---
 
 # Introduction
@@ -25,7 +25,10 @@ A very common use case for environment variables is connecting an API to a datab
 
 Let's start with generating a new Nest.js application:
 
-`nest new env-validation`
+```bash
+nest new env-validation
+```
+
 ### Setup
 Now, create a new `Dockerfile` in the root of the project and add this code:
 
@@ -96,7 +99,9 @@ services:
 
 Great! I have decided to use `typeorm` as our ORM in this tutorial. To use our environment variables in the Nest.js way, we need to add the dependency for our `ConfigService`. Let's install a few dependencies :
 
-`npm i @nestjs/typeorm typeorm mysql2 @nestjs/config`
+```bash
+npm i @nestjs/typeorm typeorm mysql2 @nestjs/config
+```
 
 We can configure the `TypeOrmModule` in our `app.module.ts`:
 
@@ -136,7 +141,11 @@ export class AppModule {}
 
 As you can see, we have set up our `ConfigModule` and the `TypeOrmModule`, where we inject the `ConfigService` and define the different properties that we need for our database connection. The `ConfigService` helps us to read environment variables and use them inside our application.
 
-However, when we now run `docker compose up` we can see that we can't connect to our database, because our `.env` file is empty.
+However, when we now run:
+```bash
+docker compose up
+``` 
+we can see that we can't connect to our database, because our `.env` file is empty.
 
 <div className="w-full overflow-hidden">
   ![Image One](/static/images/blog/validating-environment-variables-in-nest.js/img-one.png)
@@ -176,7 +185,11 @@ ConfigModule.forRoot({
 
 As you can see, we have created a new key for every environment variable we need to start up our application properly. After that, we utilized `joi` to tell the `ConfigModule` that our environment variables are required and what type we're expecting right here.
 
-When you now start up the development server with `docker compose up` again and still have an empty `.env` file, you see a more detailed output than before:
+When you now start up the development server with:
+```bash
+docker compose up
+```  
+and still have an empty `.env` file, you see a more detailed output than before:
 
 ![Image Two](/static/images/blog/validating-environment-variables-in-nest.js/img-two.png)
 
@@ -194,7 +207,11 @@ MYSQL_SYNCHRONIZE=true
 
 The `MYSQL_ROOT_PASSWORD` is a required environment variable that our `mysql` image needs. For more information check https://hub.docker.com/_/mysql.
 
-When we now start everything up again with `docker compose up`, our application should start properly without any errors:
+When we now start everything up again with:
+```bash
+docker compose up
+```  
+our application should start properly without any errors:
 
 ![Image Three](/static/images/blog/validating-environment-variables-in-nest.js/img-three.png)
 
@@ -225,7 +242,7 @@ async function bootstrap() {
 bootstrap();
 ```
 
-When we now run `docker compose up`, we see the following:
+When we start the containers again, we can see:
 
 ![Image Three](/static/images/blog/validating-environment-variables-in-nest.js/img-four.png)
 
@@ -245,7 +262,7 @@ MYSQL_SYNCHRONIZE=true
 PORT=3000
 ```
 
-Running `docker compose up` again, we don't see any errors and our application starts up properly:
+Starting all up again, we don't see any errors and our application starts up properly:
 
 ![Image Three](/static/images/blog/validating-environment-variables-in-nest.js/img-three.png)
 
