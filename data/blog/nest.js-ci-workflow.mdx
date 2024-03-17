@@ -1,0 +1,468 @@
+---
+title: 'Realistic Nest.js Continuous Integration Workflow'
+date: '2024-03-17'
+tags: ['Nest.js', 'Docker', 'GitHub Actions', 'CI/CD']
+---
+
+# Introduction
+
+In the fast-paced world of software development, staying ahead of the curve is essential. With the constant evolution of technology and user expectations, delivering high-quality code efficiently has become paramount. This is where Continuous Integration (CI) pipelines emerge as an indispensable tool in a developer's arsenal.
+
+CI pipelines have revolutionized the way software is built, tested, and deployed. They provide an automated, systematic approach to integrating code changes from multiple contributors, thus enabling teams to work collaboratively and deliver software at an unprecedented pace.
+
+In this blog post, we'll see how to set up a CI pipeline around Nest.js and Docker using GitHub Actions. When this is done, we're reducing the risk of integration conflicts and ensuring the code quality of the project. 
+
+Furthermore, it will reduce the manual work which can be tedious and error-prone because it all will be automated.
+
+Let's explore these details!
+
+---
+
+# What we want to achieve
+
+To ensure that the code that is deployed to production later meets our quality standards, we need it to run through a certain pipeline and pass all the steps before the actual deployment happens. This is basically what a CI pipeline is used for. 
+
+These are the steps we need to take:
+
+```
+PULL REQUEST:
+LINT -> UNIT TESTS -> E2E TESTS
+
+PUSH ONTO MASTER:
+LINT -> UNIT TESTS -> E2E TESTS -> BUILD DOCKER IMAGE -> PUSH TO DOCKERHUB
+```
+
+Let's break it down:
+
+To let our pipeline run, we will implement two triggers. The first one is by opening and updating a pull request and the other one is when the `master` branch is being updated (either through a direct push on the branch itself or through a merged pull request). But keep in mind, that pushing on a production branch directly is not a good practice and should normally be disabled.
+
+As you can see, creating and updating a pull request only runs the linter and our tests, while updating the `master` also builds a new Docker image and pushes it to DockerHub where it can be pulled from deployment jobs that will deploy our code to production. 
+
+The sole purpose that only the linter and tests run on pull requests is to see if the code we've written or modified still meets our quality standards before merging it. This gives the developer a chance to fix the stuff that is breaking the checks right on the spot. You can also go a step further and allow the pull request only to be merged when these checks are passing. Otherwise, you can't merge it. This is a common practice, especially in bigger projects.
+
+A common scenario is whenever all checks pass, reviewers give their approval and the pull request is merged into the `master`, the checks run again and only then a new Docker image is being built and pushed off to DockerHub.
+
+You can also incorporate more steps into the pipeline like checking your dependencies using `depcheck` or using some other tools like **GitGuardian** for example to ensure you meet certain security standards within your code.
+
+---
+# Create application
+
+### Setup Nest.js application
+First, let's create our Nest.js application from scratch. Since this blog post is about the CI workflow, working with the boilerplate Nest.js application is enough.
+
+Type into your terminal:
+
+```bash
+nest new ci-application
+```
+
+This should create a new Nest.js application and install the necessary dependencies for you. After that is done you can open the project up in your favorite code editor. 
+
+After that, we can create a new GitHub repository and push our code. 
+### Add Dockerfile
+To make our workflow work, we need to create a docker image first.
+
+So, let's create a `Dockerfile` at the root of our project:
+```Dockerfile
+FROM node:18-alpine
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+
+RUN npm ci
+
+COPY . .
+
+RUN npm run build
+
+ENV NODE_ENV production
+
+RUN npm ci --only=production && npm cache clean --force
+
+CMD [ "node", "dist/main.js" ]
+````
+
+As you can see, this is an optimized Dockerfile for production. Let's go through it line by line and help you understand what we've written here.
+
+`FROM node:18-alpine` describes the base image we would like to use. Since we're building a Node.js application, we choose `node:18-alpine` here. 
+
+`WORKDIR /usr/src/app` is our working directory and will be our new root path for our project inside the container. Everything we copy into the root later will be inserted into this directory.
+
+`COPY package*.json ./` will copy our `package.json` file into our working directory. By using the `*` it will also copy the `package-lock.json` file.
+
+`RUN npm ci` installs our node modules, which we need later for our build process. We could also use `npm install` here, but running `npm ci` (which stands for *clean install*) is one optimization in our Dockerfile here. It's designed for continuous integration environments and is optimized for speed and reliability. Furthermore, it's intended to be faster and more consistent than `npm install`, making it suitable for automated build processes. It also does not attempt to resolve or update the versions of dependencies. It strictly adheres to the versions specified in the lock file.
+
+`COPY . .` copies all other files and directories of our project into the working directory of our docker image. As with every `COPY` command the first`.` specifies the source directory, which is our application root outside the container since the Dockerfile is created there. The second `.` is the target directory. Because we have set the `WORKDIR` earlier, all code will be copied into `/usr/src/app` inside of the container. 
+
+`RUN npm run build` creates a new production bundle of our application.
+
+`ENV NODE_ENV production` sets the environment variable of the node environment to `production`. 
+
+`RUN npm ci --only=production && npm cache clean --force` removes the current node modules and using the argument `--only=production` make sure that only our production dependencies are installed. This optimizes and cuts down the size of our node modules directory. 
+
+`CMD [ "node", "dist/main.js" ]` starts the server using our production bundle.
+
+Let it sit for now. We'll need it later!
+
+### Add `.dockerignore`
+Now we add a `.dockerignore` file to the root of our project. It's used in Docker to specify which files and directories should be excluded from the context when building an image. This helps reduce the size of the context and ensures that only necessary files are sent to the Docker daemon during the build process. 
+
+Add this to the file:
+```
+Dockerfile
+Dockerfile.*
+.dockerignore
+node_modules
+npm-debug.log
+dist
+```
+
+---
+
+# Setup workflow
+
+There a many services out there that help us to set up a pipeline and in this tutorial, we're using GitHub Actions. I've also integrated it into some real-world projects and would choose it every time again. 
+
+Here are the main benefits for me why choosing GitHub Actions over other tools:
+
+**Tight GitHub Integration:**\
+GitHub Actions is seamlessly integrated with GitHub repositories, making it easy to set up and manage CI/CD workflows within the same platform you use for version control and collaboration.
+
+**Free Tier for Public Repositories:**\
+GitHub Actions offers a generous free tier for public repositories, making it an attractive choice for open-source projects.
+
+**Diverse Marketplace of Actions:**\ 
+The GitHub Marketplace provides a vast library of pre-built actions that cover a wide range of tasks. This can save you time and effort in setting up and customizing your workflows.
+    
+**Ease of Use:**\
+The YAML-based configuration files used for defining workflows are relatively easy to read and write, making them accessible to developers with varying levels of expertise.
+    
+**Community and Support:**\
+GitHub has a large and active community, which means there are many resources available for learning and troubleshooting GitHub Actions.
+    
+**Version Control Integration:**\
+Since GitHub Actions is tightly integrated with your version control system (Git), it provides a seamless experience for automating tasks related to your codebase.
+
+### General settings
+First of all, we need to specify the following things:
+
+1) What is our workflow called?
+2) When should it run?
+
+Create a `.github` directory in the root of the application. **Don't** forget the `.` ! 
+
+Inside the directory, create another directory called `workflows`. 
+
+Finally, create a new file in the new directory called `ci.yaml`. You can call it whatever you want, but I think `ci` fits pretty well in our case.
+
+Great! Let's setup the file:
+```yaml
+name: Build Nest.js app
+
+on:
+	pull_request:
+	push:
+		branches:
+			- master
+```
+
+Above we created a `name` for our workflow and with the `on` we defined our triggers when this workflow should run.
+### Lint and test
+After setting up the name and triggers for our pipeline, it's now time to create the first job which is linting and testing.
+
+Our `ci.yaml` file will look like this now:
+``` yaml
+name: Build Nest.js app
+
+on:
+	pull_request:
+	push:
+		branches:
+			- master
+
+# 👇👇👇 Add this 👇👇👇
+jobs:
+	lint-and-test:
+		runs-on: ubuntu-latest
+
+		steps:
+			- name: Checkout repository
+			uses: actions/checkout@v2
+
+			- name: Set up Node.js
+			uses: actions/setup-node@v2
+			with:
+				node-version: '18'
+
+			- name: Install dependencies
+			run: npm install
+			
+			- name: Lint
+			run: npm run lint
+
+			- name: Run unit tests
+			run: npm run test
+
+			- name: Run E2E tests
+			run: npm run test:e2e
+```
+
+In this job, we're implementing the first three circles of our diagram from above. 
+
+With the help of the `jobs` key we can define all necessary jobs that should run in our pipeline. 
+
+Each job needs a `runs-on` because this defines the OS on the GitHub server where our pipeline runs. 
+
+After that, we define all the `steps` our job needs. First of all the job needs to check out our repository to have the code available and since we're building a Node.js application we need to set up a Node.js environment. 
+
+After installing all of our node modules we simply run all three scripts, that put our code through the linter and run the tests. You can take a look at these scripts inside your `package.json`. 
+
+Whenever a step fails (for example a unit test fails), the whole pipeline gets canceled and we will be informed that something went wrong. Inside the logs of the action, we can then see which step failed and why. 
+### Build and push
+Let's recap what we've accomplished for now. 
+
+We're now able to automatically run our linter and our tests whenever a new pull request has been created or updated or when our code gets pushed onto our `master` branch (usually when another branch gets merged into it).
+
+We're assured now that only code gets released that satisfies the linter and is tested. When any of the steps from above fail, the whole pipeline will be canceled and we will have the opportunity to fix our code first. As you might have guessed, this is a pretty important step.
+
+But when all is passing we can now handle the building of a new docker image and push it off to a registry. 
+
+Extend your workflow to make it look like this:
+```yaml
+name: Build Nest.js app
+
+on:
+	pull_request:
+	push:
+		branches:
+			- master
+
+jobs:
+	lint-and-test:
+		runs-on: ubuntu-latest
+
+		steps:
+			- name: Checkout repository
+			uses: actions/checkout@v2
+
+			- name: Set up Node.js
+			uses: actions/setup-node@v2
+			with:
+				node-version: '16'
+
+			- name: Install dependencies
+			run: npm install
+			
+			- name: Lint
+			run: npm run lint
+
+			- name: Run unit tests
+			run: npm run test
+
+			- name: Run E2E tests
+			run: npm run test:e2e
+	
+	# 👇👇👇 Add this 👇👇👇
+	build-and-push:
+		runs-on: ubuntu-latest
+
+		steps:
+			- name: Checkout repository
+			uses: actions/checkout@v2
+
+			- name: Configure meta data
+			id: docker_meta
+			uses: docker/metadata-action@v3
+			with:
+				images: <YOUR DOCKER ID>/<IMAGE NAME>
+  
+			- name: Build and push to Docker Hub
+			uses: docker/build-push-action@v2
+			with:
+				context: .
+				file: Dockerfile
+				tags: ${{ steps.docker_meta.outputs.tags }}
+				labels: ${{ steps.docker_meta.outputs.labels }}
+```
+
+As you can see, we've implemented the second job that should run after the `lint-and-test`. 
+
+Inside the new job, we're configuring our metadata for our Docker image, building the Docker image, and pushing it off to Docker Hub. 
+
+Take a closer look into the second step `Configure meta data` where we're specifying the image `name`. You have to insert `YOUR DOCKER ID` and the `IMAGE NAME`. Don't forget the `/` in between. Otherwise, this step will fail! If you don't have an account on DockerHub yet, make sure to create one first.
+
+Inside the next step all the magic happens with building and pushing our Docker image. As you might know from `docker-compose` files, we're specifying a build context, which is in our case our root directory and the appropriate Dockerfile.
+
+**Important for a private DockerHub repository**\
+If you're planning to save this Docker image privately on DockerHub or any other registry, you have to auhenticate first. 
+
+To accomplish this you have to add the following step before the `Build and push to Docker Hub` step:
+```yaml
+			- name: Login to Docker Hub
+			uses: docker/login-action@v1
+			with:
+				username: ${{ secrets.DOCKER_HUB_USERNAME }}
+				password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+```
+
+Of course, we don't want to add our DockerHub credentials directly to our GitHub repository. Therefore you can add some secrets that will be read and used by the actions while they're running. 
+
+Go to `Settings` in your GitHub repository, choose on the left `Secrets and variables`, and click on `Actions`. There you can add new secrets.
+
+### Adjustment #1: Let the jobs run sequentially 
+When we take a look at our diagram again and think about it, we recognize that it would make sense for the first job `lint-and-test` to be successful before we start building and pushing our Docker image. 
+
+For now, this is not configured and they won't run after each other. But we can fix this with one line. 
+
+```yaml
+name: Build Nest.js app
+
+on:
+	pull_request:
+	push:
+		branches:
+			- master
+
+jobs:
+	lint-and-test:
+		runs-on: ubuntu-latest
+
+		steps:
+			- name: Checkout repository
+			uses: actions/checkout@v2
+
+			- name: Set up Node.js
+			uses: actions/setup-node@v2
+			with:
+				node-version: '16'
+
+			- name: Install dependencies
+			run: npm install
+			
+			- name: Lint
+			run: npm run lint
+
+			- name: Run unit tests
+			run: npm run test
+
+			- name: Run E2E tests
+			run: npm run test:e2e
+	
+	build-and-push:
+		runs-on: ubuntu-latest
+		# 👇👇👇 Add this 👇👇👇
+		- needs: lint-and-test
+
+		steps:
+			- name: Checkout repository
+			uses: actions/checkout@v2
+
+			- name: Configure meta data
+			id: docker_meta
+			uses: docker/metadata-action@v3
+			with:
+				images: <YOUR DOCKER ID>/<IMAGE NAME>
+  
+			- name: Build and push to Docker Hub
+			uses: docker/build-push-action@v2
+			with:
+				context: .
+				file: Dockerfile
+				tags: ${{ steps.docker_meta.outputs.tags }}
+				labels: ${{ steps.docker_meta.outputs.labels }}
+```
+
+The `needs` keyword makes sure that our job is only running when the `lint-and-test` job is finished successfully. With this in place, we make sure that no untested image gets built and pushed.
+
+### Adjustment #2: Only build and push when the `master` is updated
+Currently, all of our jobs are always executed. No matter if it's inside a pull request or through an update of the `master` branch. 
+
+This is not ideal because we don't want to build and push a Docker image inside a pull request. We just want to scan if our code still meets our quality standards and give the developer the chance to fix the code to meet these requirements.
+
+By adding two more lines to our configuration we're good to go:
+```yaml
+name: Build Nest.js app
+
+on:
+	pull_request:
+	push:
+		branches:
+			- master
+
+jobs:
+	lint-and-test:
+		runs-on: ubuntu-latest
+
+		steps:
+			- name: Checkout repository
+			uses: actions/checkout@v2
+
+			- name: Set up Node.js
+			uses: actions/setup-node@v2
+			with:
+				node-version: '16'
+
+			- name: Install dependencies
+			run: npm install
+			
+			- name: Lint
+			run: npm run lint
+
+			- name: Run unit tests
+			run: npm run test
+
+			- name: Run E2E tests
+			run: npm run test:e2e
+	
+	build-and-push:
+		runs-on: ubuntu-latest
+		- needs: lint-and-test
+
+		# 👇👇👇 Add this 👇👇👇
+		if: github.ref == 'refs/heads/master'
+
+		steps:
+			- name: Checkout repository
+			uses: actions/checkout@v2
+
+			- name: Configure meta data
+			id: docker_meta
+			uses: docker/metadata-action@v3
+			with:
+				images: <YOUR DOCKER ID>/<IMAGE NAME>
+  
+			- name: Build and push to Docker Hub
+			uses: docker/build-push-action@v2
+			# 👇👇👇 Add this 👇👇👇
+			if: github.event_name != 'pull_request'
+			with:
+				context: .
+				file: Dockerfile
+				tags: ${{ steps.docker_meta.outputs.tags }}
+				labels: ${{ steps.docker_meta.outputs.labels }}
+```
+
+With the line `if: github.ref == 'refs/heads/master'` we're telling our jobs to run only when we're on the `master` branch. You might argue that we've already specified this inside our trigger at the top of this file. But keep in mind that this only describes when our **workflow** should run. By adding the if statement you specify when your **job** should run.
+
+The other line `if: github.event_name != 'pull_request'` tells that our image is **NOT** built and pushed when we're inside a pull request.
+
+### That's it!
+
+Now you're able to commit and push it to your GitHub repository. You can then hit the `Actions` tab in your repository and see that there is a new running action, that performs the configured workflow.
+
+Feel free to play around with it. Make a pull request and see if only the `lint-and-test` job runs, try to merge it, extend your workflow with other jobs/steps, or create a second workflow for a staging environment that gets triggered when the `dev` branch is updated. 
+
+You've got a solid foundation now where you can build more!
+
+---
+
+# Conclusion
+
+In today's speedy world of making computer programs, using CI pipelines is like having a super helper. It does a bunch of important tasks for us, like putting together pieces of code and checking if they work well. This means we can focus on making great software without getting stuck in fiddly details.
+
+Remember, CI pipelines aren't just for big tech wizards. They're useful for everyone who writes code. They save time, make sure our code works correctly, and make our customers happy.
+
+So, if you're into coding, give CI pipelines a try. They'll make your work smoother and more successful. It's like having a secret weapon for building awesome software!
+
+See you in the next blog post!
