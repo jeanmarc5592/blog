@@ -49,3 +49,25 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.docker_meta.outputs.tags }}
           labels: ${{ steps.docker_meta.outputs.labels }}
+
+  deploy:
+    runs-on: self-hosted
+    needs: build_and_push
+    steps:
+      # Checkout Repository
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      # Login to DockerHub
+      - name: Login to DockerHub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+
+      # Deploy Docker Container
+      - name: Pull Docker Image and Run Docker Container
+        run: |
+          docker pull jonny5592/blog:main
+          docker stack deploy -c docker-compose.yml --prune --with-registry-auth blog
