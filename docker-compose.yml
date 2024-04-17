@@ -29,7 +29,7 @@ services:
         - "traefik.http.routers.blog.rule=Host(`jean-marc.io`, `www.jean-marc.io`)"
         - "traefik.http.routers.blog.tls=true"
         - "traefik.http.routers.blog.tls.certresolver=letsencrypt"
-        - "traefik.docker.network=traefik_default"
+        - "traefik.docker.network=traefik"
         - "traefik.http.services.blog.loadbalancer.server.port=3000"
     networks:
       - traefik
