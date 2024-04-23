@@ -6,10 +6,10 @@ services:
     image: "jonny5592/blog:main"
     ports:
       - "3000"
-    healthcheck:
-      test: "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000 || exit 1"
-      interval: 10s
-      timeout: 10s
+#    healthcheck:
+#      test: "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000 || exit 1"
+#      interval: 10s
+#      timeout: 10s
     deploy:
       mode: replicated
       replicas: 1
