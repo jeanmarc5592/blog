@@ -1,0 +1,121 @@
+---
+title: 'Validate your API responses properly with Zod'
+date: '2024-05-27'
+tags: ['Typescript']
+summary: 'Using schema validation to ensure data consistency and type safety of your API responses. It makes your code more robust and less error-prone.'
+---
+
+# Introduction
+If you have some experience with Typescript, you might know the problem of working with API responses properly. You're creating a new `type` or `interface` that describes the data coming back as the response. This helps you to work with that response data inside your Typescript code.
+
+But do you make sure to check if the data is correct and satisfies the type definition?
+
+For example, you're receiving this data from an API:
+
+```json
+{
+  "id": "123",
+  "name": "Michael Jordan",
+  "team": "Chicago Bulls",
+}
+```
+
+Now, you create a new type called `Player`:
+
+```ts
+type Player = {
+  id: string;
+  name: string;
+  team: string;
+}
+```
+
+If you're using an HTTP client like `axios` you can now assign the type to the response:
+
+```ts
+const getPlayerData = async (id: string) => {
+  try {
+    const { data } = await axios.get<Player>(`https://my-api.com/players/${id}`);
+    return data;
+  } catch(error) {
+    console.error(error);
+  }
+}
+```
+
+When you now call that function from inside your code, you have the correct type: 
+
+```ts
+const player = await getPlayerData("123");
+
+console.log(player.id) // "123"
+console.log(player.name) // "Michael Jordan"
+console.log(player.team) // "Chicago Bulls"
+```
+
+## The problem with this approach
+Although you're setting the type of the response, it doesn't ensure that the data is correct! In other words, it doesn't validate the response. If the `id` for example is of type `number`, you don't receive an error or any other information about it, when getting the response.
+
+Let's see how we can fix that and ensure our response data is correct.
+
+---
+# Schema validation for the win
+There are many different ways to validate a schema in Typescript, but using `zod` is one of the best in my opinion. It is very flexible, has a lot of validators, and allows you to infer a `type` from your schema.
+
+You can check the whole documentation [here](https://zod.dev/)
+
+In our example above, we first define a schema of our `Player`:
+
+```ts
+import { z } from "zod";
+
+const playerSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  team: z.string().min(1),
+});
+```
+
+This is the schema through which our response data gets validated against. Using `min(1)` makes the property required. It should have a minimum length of 1 and if it's an empty string, for example, the validation fails.
+
+Now, we don't have to define a `Player` type on our own. We can infer a type from that schema:
+
+```ts
+type Player = z.infer<typeof playerSchema>;
+```
+
+This comes in very handy because when we change something in our `PlayerSchema` the `Player` type is updated automatically. If we'd set the type by hand, we'd have to manually update it every time we change something inside our schema. This is error-prone and can lead to many problems later. 
+
+If we want to validate our data against that schema, we make use of the `parse` method:
+
+```ts
+playerSchema.parse(data);
+```
+
+Our data fetching function now looks like this:
+
+```ts
+const getPlayerData = async (id: string) => {
+  try {
+    const { data } = await axios.get<Player>(`https://my-api.com/players/${id}`);
+    // 👇 Validating "data" before returning it
+    playerSchema.parse(data);
+    return data;
+  } catch(error) {
+    console.error(error);
+  }
+}
+```
+
+If our response data doesn't satisfy our schema definition now, the `parse` method will throw an error that can be caught inside the `catch` block.
+
+Now, you're making your api response type safe and ensuring that the data is as expected by validating it against a pre-defined schema.
+
+---
+# Conclusion
+I have to admit that I was making it also wrong for a long time until I wondered where some nasty issues with the response types came from. So as I debugged my application, I recognized that I fell into that trap of Typescript. I didn't think about validation and thought "giving it a type is enough" because I was just focused on using it in the application.
+
+That's the reason why I wrote this post here, so you don't fall into this trap, too. At the end of the day, we all want to write robust code, and using schema validation with `zod` lets us achieve it with minimal effort.
+
+Have fun with it and see you next time!
+
