@@ -1,0 +1,384 @@
+---
+title: 'Advanced Kubernetes: How to manipulate Pod scheduling'
+date: '2024-07-06'
+tags: ['Kubernetes', 'DevOps', 'Pod']
+summary: 'Manipulating the default Pod scheduling makes your applications more reliable and increases the performance. See how you can gain fine-grained control over where your Pods are place within your cluster.'
+---
+
+## Introduction
+One of the great benefits of K8s is that you don't have to wrap your head around where (on which Nodes) your application runs. So, you don't have to manage the scheduling of your Pods manually.  But there might be cases where it's useful to influence the scheduling.
+
+Imagine you have an application consisting of a frontend, backend, and database that is managed inside a K8s cluster. All parts are running in their pods. So, you end up with three Pods in total.
+
+Now, here are some constraints that should be considered:
+
+1) All frontend Pods shouldn't run on a single Node because when this Node crashes, the frontend is also completely unavailable. The same goes for the backend Pods.
+2) The backend and database Pods should run on a Node together to optimize latency, resulting in faster communication between those two.
+3) The backend Pods should run on Nodes that have an `nvidia` GPU because they rely on it for faster calculations.
+
+As you can see in this case, you can't rely on the automatic Pod scheduling by K8s itself. You need a way to define some rules to satisfy those constraints for your application.
+
+Luckily, K8s got us covered and provided some concepts that we will cover in this post here to handle situations like the above.
+
+By understanding and utilizing these concepts, you can gain precise control over pod scheduling in your Kubernetes cluster.
+
+This control helps ensure that your applications are running on the most suitable nodes, thereby optimizing performance and resource utilization while maintaining the desired level of redundancy and fault tolerance.
+
+So, I hope you are as excited as I am! Let's dive into it.
+
+## Pod scheduling in the world of Kubernetes
+You might wonder *What exactly means pod scheduling.
+
+It refers to the process of determining which nodes within a cluster will run specific pods. Kubernetes automatically handles this task to optimize resource usage and ensure high availability.
+
+However, understanding and controlling pod scheduling is crucial for maintaining application performance, reliability, and efficient resource utilization.
+
+The Kubernetes scheduler evaluates several factors to decide the best placement for each pod. These factors include the resource requirements of the pods (CPU, memory, etc.), the current load and capacity of the nodes, and any specific constraints or preferences defined by the user.
+
+In this post, we're going to discover how we can manipulate this default behavior to our needs.
+
+## Labels in K8s
+First things first. Let's take a look at labels first because they are a fundamental concept that is important to apply to make the other mechanisms work.
+
+In K8s, labels are used to provide information about an individual resource. They are like little tags in the form of key-value pairs.
+
+For example, you can add the label `environment: production` to all Pods that are deployed to your production environment. When you want to see all those kinds of pods you can provide the label as an argument to your `kubectl` commands:
+
+```bash
+kubectl get pods -l environment=production
+```
+
+Generally, every object in K8s is independent from one another. That means, a Pod can run by itself. But, there are other objects like a Service or an Ingress you can combine because they provide some extra functionality.
+
+You can connect a Service to a Pod to provide network functionality and route traffic to it. But how do you tell the Service what specific Pod(s) it should route the traffic to? Exactly, through labels!
+
+So, the manifest for a Pod could look like this:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-pod
+  labels:
+    # 👇 Label that gets used as the selector
+    app: nginx
+spec:
+  containers:
+  - name: nginx
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+```
+
+And the service would be this:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  selector:
+    # 👇 Select the pod by it's label
+    app: nginx
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+  type: ClusterIP
+
+```
+
+As you can see, we provide a label of `app:nginx` to our Pod and reference this inside our Service under the `selector` key. Now, the Service knows exactly what Pod(s) the network traffic should be routed to.
+
+So, there are two use cases why we use labels:
+
+1) To organize our objects which is especially useful when we have many objects in our cluster
+2) To use them as a selector for other objects to provide extra functionality
+
+The cool thing is that nodes also have certain labels which we will make use of to manipulate the destination where our Pods should run. In the screenshot below you can see the labels of a Node in `minikube`:
+
+![[Bildschirmfoto 2024-07-02 um 05.11.29.png]]
+
+As you can see, we can get more information about the Node through a label. For example, the label `kubernetes.io/os=linux` tells us that the operating system on that Node is Linux-based. This could be helpful if we have a Pod that should only run on Linux Nodes. Or through the label `node-role.kubernetes/control-plane=` you can see that this Node is the Control Plane (Master Node).
+
+Of course, the labels will differ from the infrastructure itself. When you're running your Nodes in AWS for example you might also have labels about the region and the availability zone.
+
+You can also add labels to your Nodes on your own:
+
+```bash
+kubectl label nodes <node-name> hardware-type=gpu
+```
+
+Let's see how we can make use of those labels in the context of manipulating the Pod scheduling!
+
+## NodeSelector
+The first technique is to use the `nodeSelector` in our Pod manifests. It's pretty similar to our example from above where we selected the specific Pod in our Service.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+	name: cuda-pod
+spec:
+	containers:
+		- name: cuda-container
+		  image: "registry.k8s.io/cuda-vector-add:v0.1"
+		  resources:
+			  limits:
+				  nvidia.com/gpu: 1
+	# 👇 Select only nodes that have the label "graphic: nvidia"
+	nodeSelector:
+		graphic: nvidia
+```
+
+In this example, we're telling K8s that this Pod should only run on Nodes, that have an `nvidia` GPU. If there are no Nodes with that GPU, the Pod can't be started. It will remain in the *Pending* status until there is a Node available with that specific GPU or to be more precise, with the label `graphic: nvidia`.
+
+If you don't specify a `nodeSelector` or leave it empty, the Pod will run on any available Node.
+
+Using the `nodeSelector` tells K8s :
+
+> A Node should exactly have these labels or the Pod should not run
+
+This can be helpful in many cases, but when you need a bit more complex rules or target the right Nodes more specifically, *Affinity* and *Anti-Affinity* will be your friends.
+
+There are two ways to add affinities or anti-affinities to a Pod, towards a Node or another set of Pods.
+
+## Node Affinity & Anti-Affinity
+With the help of affinity and anti-affinity towards a Node, we can specify if a Pod should prefer certain Nodes or not. It allows us to define more complex rules that are also more customized.
+
+Using this mechanism can be useful to control the scheduling in clusters where Nodes are geographically distributed. For example, we can define that certain Pods should only run in specific regions.
+
+Inside your Pod manifest, there are two options in this context:
+### 1) requiredDuringSchedulingIgnoredDuringExecution
+This option triggers the same behavior as the `nodeSelector` because with this rule we set the prerequisites a Node SHOULD have. If it doesn't have them, the Pod won't start on there.
+
+```yaml
+nodeAffinity:
+	requiredDuringSchedulingIgnoredDuringExecution:
+		nodeSelectorTerms:
+			- matchExpressions:
+				- key: "region"
+				  operator: "In"
+				  values:
+					- "USA"
+					- "Europe"
+```
+
+In the example above we're telling Kubernetes that this Pod should only be started on Nodes that have a `region` label of either `USA` or `Europe`. So, the Pod won't start on Nodes in Asia.
+
+```yaml
+nodeAffinity:
+	requiredDuringSchedulingIgnoredDuringExecution:
+		nodeSelectorTerms:
+			- matchExpressions:
+				- key: "region"
+				  operator: "In"
+				  values:
+					- "USA"
+					- "Europe"
+				- key: "disktype"
+				  operator: "In"
+				  values:
+					  - "ssd"
+```
+
+You can also use multiple conditions by nesting them under the `matchExpressions` key. In the example above, the Node must be in Europe or the USA **AND** has to have an SSD disk.
+
+But there's also a way to specify an **OR** condition:
+
+```yaml
+nodeAffinity:
+	requiredDuringSchedulingIgnoredDuringExecution:
+		nodeSelectorTerms:
+			- matchExpressions:
+				- key: "region"
+				  operator: "In"
+				  values:
+					- "USA"
+					- "Europe"
+			- matchExpressions:
+				- key: "environment"
+				  operator: "In"
+				  values:
+					  - "production"
+```
+
+By adding another `matchExpressions` key you define an alternative condition. In this case, the Node has to be in the USA or Europe **OR** it should be a production Node. So, a Pod could run on a `development` Node that is in South Africa because one of the conditions is true.
+
+### 2) preferredDuringSchedulingIgnoredDuringExecution
+While the first option `requiredDuringSchedulingIgnoredDuringExecution` is very strict, this option here is a bit looser as you can guess from the name. The requirements a Node should meet are preferred but not required. This means that when a Node meets the requirements it's preferred and when not, the Pod could also potentially run on it.
+
+The way this option works is through a weighting describing the importance of the requirement. If a Node matches the requirement it receives the points that are specified. If it matches more requirements all points are added up. The Node with the highest sum will be chosen to start the Pod.
+
+```yaml
+affinity:
+	nodeAffinity:
+		preferredDuringSchedulingIgnoredDuringExecution:
+			- weight: 2
+				preference:
+					matchExpressions:
+						- key: "region"
+						  operator: "In"
+						  values:
+							- "USA"
+			- weight: 1
+				preference:
+					matchExpressions:
+						- key: "region"
+						  operator: "In"
+						  values:
+							- "Europe"
+```
+
+In the example above you can see that it's more important a Node stands in the USA than in Europe. You also see that we used the `weight` key to specify the importance.
+
+This means if a Node is available in the USA, it will be preferred to run the Pod. If no Node in the USA is available, but there's one in Europe, it will be preferred. Because we're using this option, a Pod could also run on a Node in Asia if no Node in the USA and Europe is available.
+
+## Pod Affinity & Anti-Affinity
+In the last section, we saw that we can give Pods affinities and anti-affinities towards certain Nodes. But we can also specify affinities and anti-affinities towards other Pods. This is what we'll cover in this section.
+
+Before we dive in, let's take a look at a few examples where this would make sense:
+
+1) A Pod should run on the same Node as a Database Pod to speed up the communication between those two (lower latency)
+2) Two replicas of the same Pod should never run on the same Node together to ensure better reliability (when the whole Node crashes the same replicas will also be down)
+
+For the *Pod Affinity* and *Pod Anti-Affinity* there are the same two options `requiredDuringSchedulingIgnoredDuringExecution` and `preferredDuringSchedulingIgnoredDuringExecution`.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+	name: nginx-pod
+spec:
+	affinity:
+		podAffinity:
+			requiredDuringSchedulingIgnoredDuringExecution:
+				- labelSelector:
+					matchLabels:
+						app: backend
+				  topologyKey: "kubernetes.io/hostname"
+	containers:
+		- name: example-container
+		  image: nginx
+```
+
+In the example above we specify that the Pod should only start on a Node where the Pod with the label `app: backend` is deployed. This could be important to increase the communication speed between those two. So, our Pod has an affinity towards the `backend` Pod.
+
+If the `backend` Pod is currently not running on any Node, the `nginx` Pod from the example won't also be running elsewhere.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+	name: nginx-pod
+	labels:
+		app: nginx
+spec:
+	affinity:
+		podAntiAffinity:
+			requiredDuringSchedulingIgnoredDuringExecution:
+				- labelSelector:
+					matchLabels:
+						app: nginx
+				  topologyKey: "kubernetes.io/hostname"
+	containers:
+		- name: example-container
+		  image: nginx
+```
+
+Here we can see the usage of `podAntiAffinity` where we're declaring that this Pod shouldn't be deployed on Nodes where another replica of this pod is already deployed.
+
+So, when there are 4 Nodes and 5 replicas of this Pod, 1 wouldn't be running and all other 4 would run on each Node. This allows better reliability if one or more Nodes crash.
+
+## Taints & Tolerations
+Wow, what a journey so far! We taught our Pods to prefer or deny certain Nodes based on different specifications. While this was all from the Pod perspective, we can also create mechanisms from the Node perspective to deny or accept certain Pods.
+
+Here are a few reasons why we might think of something like this:
+
+1) Reservation of Nodes (certain Nodes should be reserved for special use cases or groups of Pods like the Master Node)
+2) Special hardware (if a Node has some special hardware components like a GPU, the space should be kept free only for Pods that need this special hardware)
+3) Controlled Pod management (during maintenance work or upgrades it should be avoided that new Pods can be deployed on the Node)
+4) Troubleshooting (if errors are detected on a Node like networking issues, no new Pods should be run on the broken Node)
+
+To achieve these behaviors, we can add one or multiple *taints* to a Node. Pods can implement *tolerations* to accept these taints and if they do, they can run on the Node. If not, they will be evicted Node. Taints and tolerations work together to ensure that Pods doesn't run on Nodes that don't fit.
+
+To control the behavior a bit better, we can add three effects to a taint:
+
+**`NoExecute`**
+Running Pods without a toleration will be evicted immediately and new Pods will be rejected. If a Pod has toleration but hasn't implemented `tolerationSeconds`, it will run on the Node forever. If it has implemented the `tolerationSeconds`, it will be evicted after that time.
+
+**`NoSchedule`**
+Pods, that are running on that Node won't be evicted while new Pods without a toleration will be rejected (not scheduled).
+
+**`PreferNoSchedule`**
+No eviction of running Pods and new Pods without tolerance are mostly rejected, but it's not guaranteed (just preferred).
+
+To add a taint to a Node, you can leverage `kubectl` for that:
+
+```bash
+# Generic command
+kubectl taint nodes <node-name> key=value:effect
+
+# Add a taint to a Node
+kubectl taint nodes node1 nodeType=master:NoSchedule
+
+# Remove a taint from a Node (add "-" at the end of the command)
+kubectl taint nodes node1 nodeType=master:NoSchedule-
+```
+
+As you can see, you define the taint key which is in our example `nodeType`, and a taint value `master`. After that, we apply one of the three taint effects. In our case, we choose `NoSchedule`.
+
+To delete a taint from a Node again, you append a `-` to your taint effect.
+
+Let's take a look at a manifest of a Pod that accepts this taint:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+	name: nginx
+spec:
+	containers:
+		- name: nginx
+		  image: nginx
+	tolerations:
+		- key: "nodeType"
+		  operator: "Exists"
+		  effect: "NoSchedule"
+```
+
+You can recognize that we use the key `tolerations` where we can specify one or multiple tolerations. The `key` is the individual taint key of the Node and for the `operator` we can either choose *Exists* or *Equal*. After that, we also have to declare what `effect` we're tolerating here. With this manifest, the Pod will run on the Node we've tainted previously.
+
+We haven't used the `value` key here which was set to `master` in our taint command. This is because we're using the *Exists* operator that only checks if the taint key exists on a Node and that's enough. The `value` is not important in this case.
+
+If we want to consider the `value` because we want to run our Pod on a master Node, we use the *Equal* operator:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+	name: nginx
+spec:
+	containers:
+		- name: nginx
+		  image: nginx
+	tolerations:
+		- key: "nodeType"
+		  operator: "Equal"
+		  value: "master"
+		  effect: "NoSchedule"
+```
+
+So, this Pod will only run on Nodes, that have a taint of `nodeType=master:NoSchedule`.
+
+## Conclusion
+To wrap it up, effectively managing pod scheduling in Kubernetes is crucial for optimizing resource utilization, ensuring application performance, and maintaining system reliability.
+
+By leveraging NodeSelector, Affinity and Anti-Affinity rules, and Taints and Tolerations, you can gain fine-grained control over where your pods are placed within your cluster. These tools empower you to make informed scheduling decisions that align with your application’s needs and your infrastructure’s capabilities.
+
+As you implement these strategies, you’ll find that your Kubernetes deployments become more resilient, efficient, and tailored to your specific use cases. Keep experimenting and refining your configurations to fully harness the power of Kubernetes pod scheduling.
+
+I hope you had as much fun as me writing this post! If you have any further questions or feedback, don't hesitate to shoot me a message.
+
+See you next time!
