@@ -98,7 +98,7 @@ So, there are two use cases why we use labels:
 
 The cool thing is that nodes also have certain labels which we will make use of to manipulate the destination where our Pods should run. In the screenshot below you can see the labels of a Node in `minikube`:
 
-![[Bildschirmfoto 2024-07-02 um 05.11.29.png]]
+![Image One](/static/images/blog/manipulate-pod-scheduling/img-one.png)
 
 As you can see, we can get more information about the Node through a label. For example, the label `kubernetes.io/os=linux` tells us that the operating system on that Node is Linux-based. This could be helpful if we have a Pod that should only run on Linux Nodes. Or through the label `node-role.kubernetes/control-plane=` you can see that this Node is the Control Plane (Master Node).
 
