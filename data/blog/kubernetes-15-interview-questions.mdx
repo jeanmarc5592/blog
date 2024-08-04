@@ -66,8 +66,8 @@ What strategies do you use for scaling applications in Kubernetes?
 Kubernetes is an open-source container orchestration platform that automates the deployment, scaling, and management of containerized applications. It solves problems related to managing large numbers of containers, including automated rollouts and rollbacks, scaling, service discovery, load balancing, and ensuring high availability and resource optimization.
 
 ### Answer 2:
-Kubernetes has a master-worker architecture. The key components include:
-**Master Node:** Manages the cluster and consists of the API Server, etcd (key-value store), Scheduler, Controller Manager, and Cloud Controller Manager.
+Kubernetes has a master-worker architecture. The key components include:\
+**Master Node:** Manages the cluster and consists of the API Server, etcd (key-value store), Scheduler, Controller Manager, and Cloud Controller Manager.\
 **Worker Nodes:** Run the containerized applications and consist of Kubelet (agent running on each node), Kube-proxy (handles network routing), and the container runtime (e.g., Docker, containerd).
 
 ### Answer 3:
@@ -92,7 +92,7 @@ Kubernetes handles resource management by allocating CPU, memory, and other reso
 The Kubernetes scheduler is responsible for assigning newly created Pods to suitable nodes. It determines pod placement by evaluating resource requirements, constraints, and policies such as NodeSelector, Affinity/Anti-Affinity, and Taints/Tolerations. The goal is to optimize resource utilization and meet the specified scheduling criteria.
 
 ### Answer 10:
-**NodeSelector:** A simple way to constrain Pods to run only on nodes with specific labels.
+**NodeSelector:** A simple way to constrain Pods to run only on nodes with specific labels.\
 **Affinity/Anti-Affinity:** Provide more complex rules for pod placement based on labels, allowing Pods to prefer (affinity) or avoid (anti-affinity) co-location with other Pods. These can be specified as required or preferred rules.
 
 ### Answer 11:
@@ -108,7 +108,7 @@ StatefulSets manage stateful applications by providing stable network identities
 Monitoring and logging in Kubernetes can be achieved using tools like Prometheus (for metrics collection and alerting), Grafana (for visualization), and ELK stack (Elasticsearch, Logstash, Kibana) or EFK stack (Elasticsearch, Fluentd, Kibana) for logging. Kubernetes also integrates with cloud provider monitoring solutions.
 
 ### Answer 15:
-Strategies for scaling applications in Kubernetes include:
-**Horizontal Pod Autoscaler (HPA):** Automatically scales the number of Pods based on CPU/memory usage or custom metrics.
-**Vertical Pod Autoscaler (VPA):** Adjusts the resource requests and limits of containers to optimize resource utilization.
+Strategies for scaling applications in Kubernetes include:\
+**Horizontal Pod Autoscaler (HPA):** Automatically scales the number of Pods based on CPU/memory usage or custom metrics.\
+**Vertical Pod Autoscaler (VPA):** Adjusts the resource requests and limits of containers to optimize resource utilization.\
 **Cluster Autoscaler:** Adds or removes nodes from the cluster based on the pending pod demand.
