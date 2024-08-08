@@ -1,0 +1,301 @@
+---
+title: "Boost Your App's Performance: The Ultimate Guide to Load Balancing"
+date: '2024-08-08'
+tags: ['Performance', 'DevOps']
+summary: 'Prepare yourself for Kubernetes interviews or just test your current knowledge about Kubernetes.'
+---
+
+# Introduction
+
+Maintaining the good performance of our applications plays an important role in the user experience and is one crucial part of our job as developers. There are two main steps to achieve a good performance: 
+
+Improve certain steps in the application itself and the infrastructure.
+
+In the application, for example, we can limit our Javascript bundle size, do code-splitting, or think about a good time complexity of our functions when we're handling more complex computations. 
+
+The infrastructure where our application runs, plays another crucial role. Here, we can add caches to reduce waiting times for our users or make our application more available by distributing it over more nodes for example.
+
+In this post, we will focus on the infrastructure part and dive deeper into one of the most important components. A load balancer. 
+
+We'll go into a brief introduction first about what a load balancer is and what benefits it offers. After that, we'll take a look at popular load balancers. 
+
+To round this up, we'll also learn what popular load-balancing algorithms exist and dive into examples of how we can configure a chosen load balancer to use each algorithm.
+
+So, I hope you're as excited as I am. Let's start!
+
+---
+# Load Balancer
+
+In simple terms, a load balancer is a component that distributes incoming network traffic across multiple resources. When we're using it, we can achieve better resource utilization, reliability, and performance of our system.
+
+Therefore it's often used in environments where high availability, scalability, and fault tolerance play a crucial role. As you can guess, this is also true for environments where we distribute our applications across multiple resources. This can be using multiple docker containers or multiple servers for example.
+
+Using a load balancer improves the performance of our system by introducing the following characteristics:
+
+#### Distributing network traffic
+The primary task is to distribute requests across multiple backend servers. This avoids that one single server is overwhelmed with all the traffic. At the same time, we make sure that all servers run efficiently. 
+#### Scalability
+It improves the availability to scale horizontally, which means we can add more servers where our applications run. If the need for more resources rises, new servers can be instantiated and integrated into the rotation of the load balancer.
+#### High availability
+The overall reliability of the backend system also increases with a load balancer because it detects unhealthy servers and doesn't distribute traffic to them. If a server becomes unavailable because of a hardware error, a software crash, or maintenance, the incoming traffic gets distributed to other healthy or available servers.
+#### Session Persistence
+There are load balancers who offer *sticky sessions*, which make sure that requests from a client get distributed only to the server(s) where it has a session.
+#### Health Checks
+The health and availability of the servers are monitored continuously. This is achieved by sending health checks periodically to the servers. If a server doesn't pass the health check because it's not responding, the load balancer removes it from the rotation until the server is healthy again.
+
+---
+# Popular Load Balancers
+
+Here's a brief overview of popular load balancers that are often used. First, we're going to take a look at some traditional load balancers and after that, we're also going to take a look at cloud-based load balancers.
+### HAProxy
+It's an open-source load balancer and proxy server for TCP and HTTP applications. It is widely appreciated for its performance, reliability, and flexibility.
+
+**Key Features**:
+- **SSL Termination**: Offloads SSL encryption and decryption from backend servers.
+- **Stickiness**: Ensures a user's session is consistently routed to the same backend server.
+- **Health Checks**: Monitors the health of backend servers to ensure traffic is only sent to healthy nodes.
+- **Load Balancing Algorithms**: Supports multiple algorithms such as round-robin and least connections.
+- **High Availability**: Can be configured for failover and redundancy.
+
+- **Website**: [HAProxy](http://www.haproxy.org/)
+
+### Nginx
+Nginx is a versatile web server that also functions as a reverse proxy, load balancer, and HTTP cache. It is renowned for its high performance and low resource consumption.
+
+**Key Features**:
+- **Load Balancing Algorithms**: Includes round-robin, least connections, and IP hash.
+- **SSL Termination**: Handles SSL encryption and decryption.
+- **Session Persistence**: Maintains user sessions on the same backend server.
+- **Health Checks**: Periodically checks the status of backend servers to ensure they can handle traffic.
+- **Caching**: Provides HTTP caching capabilities to improve performance.
+
+- **Website**: [Nginx](https://www.nginx.com/)
+
+### Envoy
+A proxy designed for cloud-native applications. It is also open-source and serves as a load balancer, API gateway, and service mesh data plane.
+
+**Key Features**:
+- **Advanced Load Balancing**: Supports various load-balancing strategies for efficient traffic distribution.
+- **Observability**: Offers extensive metrics, tracing, and logging for monitoring and debugging.
+- **Resilience**: Built-in features for fault tolerance and reliability.
+- **HTTP and gRPC Support**: Natively supports modern communication protocols.
+- **Service Discovery**: Automatically discovers services in a dynamic environment.
+
+- **Website**: [Envoy](https://www.envoyproxy.io/)
+
+### AWS Elastic Load Balancing (ELB)
+It automatically distributes incoming application traffic across multiple targets, such as Amazon EC2 instances, containers, and IP addresses.
+
+**Key Features**:
+- **Application Load Balancer (ALB)**: Designed for HTTP/HTTPS traffic with advanced routing capabilities.
+- **Network Load Balancer (NLB)**: Handles TCP/UDP traffic with ultra-low latency.
+- **Gateway Load Balancer (GWLB)**: Integrates with third-party virtual appliances.
+- **Automatic Scaling**: Dynamically adjusts to handle varying traffic loads.
+- **Health Checks**: Continuously monitors the health of targets and routes traffic only to healthy instances.
+- **AWS Integration**: Seamlessly integrates with other AWS services for enhanced functionality.
+
+- **Website**: [AWS ELB](https://aws.amazon.com/elasticloadbalancing/)
+
+### Google Cloud Load Balancing
+This is a fully distributed, software-defined managed service that provides global load balancing for all your traffic, including HTTP(S), TCP/SSL, and UDP.
+
+**Key Features**:
+- **Global and Regional Load Balancing**: Distributes traffic across multiple regions or within a single region for optimal performance.
+- **SSL Offload**: Handles SSL encryption and decryption to reduce the load on backend servers.
+- **Auto-scaling**: Automatically adjusts capacity based on traffic demands.
+- **Content-based Routing**: Routes requests based on content types and other criteria.
+- **Google Cloud Integration**: Integrates with other Google Cloud services for a seamless experience.
+
+- **Website**: [Google Cloud Load Balancing](https://cloud.google.com/load-balancing)
+
+---
+
+# Load Balancing Algorithms
+
+You might have wondered *"How does the load balancer rotate the requests?"*. 
+
+I've got you, we'll cover it in this section where we'll dive into the most common load-balancing algorithms. Keep in mind, that not every load balancer has them implemented and that they might have some other special algorithms. 
+
+At the end of the day, the algorithm is the logic of how the load balancer distributes the requests to the backend servers. Each algorithm serves a different purpose and is used for different use cases. This depends on the system design and the goal of the load balancer. 
+
+For example, if the servers are completely equal in terms of resources, the algorithm is different than if there is a larger server. 
+
+I will also provide you with a rule of thumb for when the algorithm makes sense or what requirements your system should meet to use it. 
+
+I'll pick `nginx` as a load balancer for our examples and will also show you how a `nginx.conf` file looks like, telling nginx to use the individual algorithm. 
+
+You can visit the whole documentation of it here: https://nginx.org/en/docs/http/load_balancing.html. 
+### Round Robin
+
+![Round Robin](/static/images/blog/load-balancers/round-robin.png)
+
+In many load balancers, this is the default algorithm and therefore the simplest. As you can see in the diagram above, the incoming traffic is distributed to each server in turn. This algorithm is simple to implement and makes sure that each server receives an equal share of the traffic.
+
+Considering the diagram, *Request 4* would be distributed to `server1.example.com` again and *Request 5* to `server2.example.com`. The traffic is distributed in a circle.
+
+If all servers have the same capacities and you want to distribute the load equally, this algorithm is your friend.
+
+One downside of this algorithm is that the actual load and computational power of each server are not considered. There might be a server that's overwhelmed with the current loads and would not perform optimally anymore when it receives new requests. On the other side, there could be a server who was more computational power and could receive much more traffic to relieve the overwhelmed server. In that case, the system is not operating optimally. 
+
+The `nginx.conf` looks like this:
+
+```nginx
+http {
+    upstream backend {
+        server server1.example.com;
+        server server2.example.com;
+        server server3.example.com;
+    }
+
+    server {
+        listen 80;
+
+        location / {
+            proxy_pass http://backend;
+        }
+    }
+}
+```
+
+---
+### Least Connections
+
+![Least Connections](/static/images/blog/load-balancers/least-connections.png)
+
+With the help of this algorithm, the traffic is distributed to the server with the least amount of active connections. This helps to distribute the traffic more equally and send it to a less busy server.
+
+The algorithm is effective in distributing traffic across servers that have different capacities and computational speeds.
+
+On the other hand, using this algorithm can introduce some challenges because no metrics other than the number of connections are considered here. To be a bitmore effective, the different capacities and computational speeds should also be considered.
+
+An implementation in `nginx` looks like this:
+
+```nginx
+http {
+    upstream backend {
+        least_conn;
+        server server1.example.com;
+        server server2.example.com;
+        server server3.example.com;
+    }
+
+    server {
+        listen 80;
+
+        location / {
+            proxy_pass http://backend;
+        }
+    }
+}
+```
+
+---
+### IP Hash
+
+![IP Hash](/static/images/blog/load-balancers/ip-hash.png)
+
+When you're working with sessions in your application and have distributed it across multiple servers, you have to face the following challenge:
+
+After a session is created with `server2` for example, every following request from the client should be redirected to the same server because the other servers don't know about the session. So the client sticks to the specific server.
+
+To aid this problem, there's this algorithm where the IP address from the client is hashed and the request is distributed to the individual server that has a session with that IP address. So it helps you to implement so-called *sticky sessions*.
+
+A potential problem that could arise with this algorithm is that the load can be distributed unequally. For example, if the clients have different request patterns, different amounts of requests, or different durations of sessions. There might be servers that are busy while others are operating on a low level.
+
+In `nginx`, we can configure this algorithm like this:
+
+```nginx
+http {
+    upstream backend {
+        ip_hash;
+        server server1.example.com;
+        server server2.example.com;
+        server server3.example.com;
+    }
+
+    server {
+        listen 80;
+
+        location / {
+            proxy_pass http://backend;
+        }
+    }
+}
+```
+
+---
+### Weighted Round Robin
+
+![Weighted Round Robin](/static/images/blog/load-balancers/weighted-round-robin.png)
+
+While the normal *Round Robin* algorithm doesn't consider the individual power of each server, the *Weighted Round Robin* algorithm does that. We can define a weight for each server, where a higher number means a higher weight. 
+
+This has the result that a server with greater power receives a bigger portion of the traffic while servers with less power receive fewer requests. Using this algorithm promotes a better resource utilization of each server. 
+
+A downside could be that this requires manual work to configure everything and it may not be able to react dynamically to changes in server performance.
+
+The configuration in `nginx` looks like this:
+
+```nginx
+http {
+    upstream backend {
+        server server1.example.com weight=3;
+        server server2.example.com weight=1;
+        server server3.example.com weight=2;
+    }
+
+    server {
+        listen 80;
+
+        location / {
+            proxy_pass http://backend;
+        }
+    }
+}
+```
+
+---
+### Least Response Time
+
+![Weighted Round Robin](/static/images/blog/load-balancers/least-response-time.png)
+
+Let's be honest here. Greater response times can lead to a worse User Experience. To fix this, we can implement this algorithm to always target the server that has the least response time to achieve the best User Experience possible.
+
+This algorithm here measures the response times periodically to know which server should be next for distributing incoming traffic. As I mentioned before, its goal is to optimize the User Experience because the waiting times for the client are as short as possible.
+
+But this algorithm requires constant monitoring inside our system and it can be very sensitive to fluctuations in the network.
+
+Implementing it into `nginx` can be achieved like this:
+
+```nginx
+http {
+    upstream backend {
+        least_time header;
+        server server1.example.com;
+        server server2.example.com;
+        server server3.example.com;
+    }
+
+    server {
+        listen 80;
+
+        location / {
+            proxy_pass http://backend;
+        }
+    }
+}
+```
+
+---
+
+# Conclusion
+
+That's it! I hope you've had as much fun as me during the writing. Let's recap what we've learned:
+
+Implementing a load balancer is a powerful step toward enhancing your application’s performance and reliability. By distributing incoming traffic across multiple servers, load balancers prevent any single server from becoming a bottleneck, ensuring smooth and efficient operation even under high demand.
+
+Moreover, load balancers provide additional benefits like increased fault tolerance and easier maintenance. If one server goes down, the load balancer can seamlessly redirect traffic to other healthy servers, minimizing downtime and maintaining user satisfaction.
+
+Incorporating a load balancer not only boosts your application’s performance but also prepares your infrastructure for future growth. As your user base expands, a well-configured load balancer can scale with your application, maintaining optimal performance and providing a seamless experience for your users.
+
+See you in one of the other posts!
