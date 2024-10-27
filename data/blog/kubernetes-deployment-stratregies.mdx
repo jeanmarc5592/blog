@@ -1,0 +1,502 @@
+---
+title: 'Mastering Kubernetes Deployment Strategies: Recreate, Rolling Updates, Blue/Green, and Canary Explained'
+date: '2024-10-27'
+tags: ['Kubernetes', 'DevOps', 'Deployment']
+summary: 'Explore the top Kubernetes deployment strategies—Recreate, Rolling Updates, Blue/Green, and Canary—to learn how each approach supports seamless application updates, minimizes downtime, and optimizes user experience.'
+---
+
+# Introduction
+In today’s fast-paced tech environment, seamless, reliable, and flexible application deployments are essential for delivering quality user experiences. Kubernetes provides robust deployment strategies that cater to various application needs and risk levels, allowing teams to update, scale, and release applications with precision and control. 
+
+This post will explore four popular Kubernetes deployment strategies: **Recreate**, **Rolling Update**, **Blue/Green**, and **Canary**. Understanding these approaches is crucial for any DevOps team looking to optimize the deployment process, minimize downtime, and manage risk effectively.
+
+Deploying applications isn’t just about getting new features or updates out to users; it’s also about doing so in a way that ensures stability and allows for quick rollback in case of issues. A well-suited deployment strategy can mean the difference between a smooth release and service interruptions that impact users and operations. 
+
+Kubernetes provides various deployment strategies to address different needs—from minimizing downtime to enabling gradual rollouts and testing updates on a small portion of traffic before a full release. Let’s take a closer look at each of these methods.
+
+---
+# Setup
+To make this post more practical, we'll implement each deployment strategy in a real Kubernetes environment. If you have a running Kubernetes cluster in your home lab or have access to another cluster where you can practice, feel free to use it. But not everyone has access to one of these. 
+
+In that case, we will leverage [killercoda](https://www.killercoda.com), where we can use an empty pre-made cluster as a playground. After signing up, you can visit the [Kubernetes Playground](https://killercoda.com/playgrounds/scenario/kubernetes), where the latest Kubernetes version is already pre-installed.
+
+To understand each strategy, we’ll use the same scenario for each one and achieve our goal using the specific deployment method.
+
+The scenario is: 
+
+**We have a Kubernetes Deployment that controls 4 Pods that are currently running. We have to update the Deployment to use another container image.**
+
+First, let's setup our default Deployment, that serves the old container image. In the terminal, paste this command to create a Deployment whose four replicas are using the *httpd:alpine* container image:
+
+```bash
+kubectl create deployment myapp-v1 --image=httpd:alpine --replicas=4
+```
+
+You can verify if everything is up and running correctly:
+
+```bash
+kubectl get deployments
+# NAME       READY   UP-TO-DATE   AVAILABLE   AGE
+# myapp-v1   4/4     4            4           7s
+```
+
+```bash
+kubectl get pods
+# NAME                        READY   STATUS    RESTARTS   AGE
+# myapp-v1-5b4dd59d67-7k77c   1/1     Running   0          11s
+# myapp-v1-5b4dd59d67-lzm8n   1/1     Running   0          11s
+# myapp-v1-5b4dd59d67-mc6hq   1/1     Running   0          11s
+# myapp-v1-5b4dd59d67-z4xxq   1/1     Running   0          11s
+```
+
+Alright! The foundation is set, now let's take a look at how we can deploy the new Pods using each strategy.
+
+---
+# Deployment Strategies
+### Recreate
+This strategy is the most straightforward one. Here, all running pods are first terminated, and then all new Pods are created.
+
+First, we will terminate all running Pods with the old image. To accomplish this, we will delete the deployment `myapp-v1`. 
+
+```bash
+kubectl delete deployment myapp-v1
+```
+
+We verify now that everything is deleted properly:
+
+```bash
+kubectl get deployments
+# No resources found in default namespace.
+```
+
+```bash
+kubectl get pods
+# No resources found in default namespace.
+```
+
+Now, let's create a new deployment `v2` that runs our new image *nginx:alpine*:
+
+```bash
+kubectl create deployment myapp-v2 --image=nginx:alpine --replicas=4
+```
+
+```bash
+kubectl get deployments
+# NAME       READY   UP-TO-DATE   AVAILABLE   AGE
+# myapp-v2   4/4     4            4           5s
+```
+
+```bash
+kubectl get pods
+# NAME                       READY   STATUS    RESTARTS   AGE
+# myapp-v2-bbf4659cd-cf7hh   1/1     Running   0          8s
+# myapp-v2-bbf4659cd-cv7kk   1/1     Running   0          8s
+# myapp-v2-bbf4659cd-s2dxr   1/1     Running   0          8s
+# myapp-v2-bbf4659cd-wrmhm   1/1     Running   0          8s
+```
+
+To verify that one of our Pods is running the correct image, we can use this command:
+
+```bash
+kubectl describe pod myapp-v2-bbf4659cd-cf7hh | grep "Image:"
+    # Image:          nginx:alpine
+```
+
+**IMPORTANT: The name of the Pod will be different for you.**
+
+Great! This was fairly easy on the one side but comes with a big trade-off on the other side: **DOWNTIME**. 
+
+Since all old instances are removed at once, users may experience a temporary service disruption. This strategy is often best suited for applications that don’t require high availability or where short, controlled downtimes are acceptable.
+
+We have implemented this strategy manually to understand what's happening here. But in the real world, we would specify it in the Deployment manifest under `spec.strategy.type`:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+	name: myapp-v1
+spec:
+	replicas: 4
+	strategy:
+		type: Recreate
+...
+```
+
+Before we start with the next one, let's set everything up again to have our default Deployment up and running:
+
+```bash
+kubectl delete deployment myapp-v2
+```
+
+```bash
+kubectl create deployment myapp-v1 --image=httpd:alpine --replicas=4
+```
+
+---
+### Rolling Update
+This strategy is one of the most common Kubernetes deployment strategies, offering a balanced approach by gradually replacing old instances of an application with new ones. 
+
+Kubernetes launches the new version in batches (e.g., two new Pods at the same time) and waits for each batch to become healthy before moving on to the next. This reduces the risk of downtime because some instances of the previous version remain active throughout the process.
+
+The Rolling Update is the default behavior when updating a Deployment in Kubernetes. 
+
+In our scenario, we're going to update our existing deployment with the new container image and apply those changes.
+
+First, let's edit our existing deployment:
+
+```bash
+kubectl set image deployment/myapp-v1 httpd=nginx:alpine
+```
+
+Let's observe the rolling update process:
+
+```bash
+kubectl get pods -w
+```
+
+You can see that Kubernetes first creates the new batch of Pods, and only if they're healthy, the first batch of the old Pods are terminated. After that, the next batch will be created, and so on until we reach our desired replicas count. 
+
+This reduces the risk of downtime because some instances of the previous version remain active throughout the process. 
+
+Rolling Updates are ideal for teams that want to deploy with minimal service interruption and provide a smooth transition for users.
+#### Control the rolling update with `maxSurge` and `maxUnavailable`
+When we're using this strategy, we can specify how many new Pods can be created and how many can be unavailable during the update. The options `maxSurge` and `maxUnavailable` are our friends in that case.
+
+Both can be specified under `spec.strategy.rollingUpdate` in a Deployment manifest:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+	name: myapp-v1
+spec:
+	replicas: 4
+	strategy:
+		type: RollingUpdate
+		rollingUpdate:
+			maxUnavailable: 1
+			maxSurge: 1
+...
+```
+
+The values for these options can be an absolute number (5) or percentage (10%). The default value for both is 25% when you don't specify it in your Deployment manifest. 
+
+**`maxUnavailable`** defines the amount of Pods that can be unavailable during a rolling update. 
+
+If it is set to 30% and you have ten replicas, Kubernetes will ensure that at least 70% of the desired replicas (7 Pods) remain available to handle traffic during the update. Old Pods will be terminated in phases, and new Pods will start while maintaining that minimum threshold of 7 running Pods.
+
+This setting is crucial for controlling the availability of your application during updates, especially in scenarios where you need a certain percentage of your Pods to be available at all times.
+
+**`maxSurge`** specifies the maximum number of Pods that can be created over the desired replica count during a rolling update. 
+
+When it's set to 50%, and your deployment defines ten replicas, Kubernetes allows up to 15 Pods (10 desired + 5 extra) to be running temporarily during the update. This lets the deployment start new Pods before terminating old ones, providing extra capacity to speed up the update.
+
+Overall, `maxSurge` allows for faster deployments by enabling a higher number of Pods to handle traffic while new ones come online, reducing the time it takes to achieve full replication of the new version.
+
+Awesome! Before we continue, let's create our default environment again:
+
+```bash
+kubectl set image deployment/myapp-v1 httpd=httpd:alpine
+```
+
+---
+### Blue/Green
+In this deployment strategy, two identical environments (Blue and Green) are used to host the old and new versions of the application. The active version (let’s say Blue) serves all traffic, while the new version (Green) is deployed and tested separately. 
+
+Once the Green version is confirmed to be stable, traffic is switched from Blue to Green. If any issues arise, traffic can easily be rolled back to the Blue environment, minimizing risk.
+
+In our case, we will create a Service first that redirects traffic to the current Deployment. After that, we will add a new Deployment with the new image. 
+
+When all Pods are up and running, we will test them. For example, we could add a new Service for the Deployment that gets exposed via a custom route in the ingress, or we could forward a port of one of the new Pods. 
+
+If the tests are all good and the new version is deployed correctly, we adjust the new Deployment to receive the traffic (we'll see how we achieve it) and delete the old Deployment, which also kills the ReplicaSet it controls and the corresponding Pods. 
+
+First, we create a new Service which is connected to the Pods from the `myapp-v1` Deployment:
+
+```bash
+nano myapp-service.yaml
+```
+
+Add the following code to the newly created yaml and save it:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: myapp
+  name: myapp
+spec:
+  selector:
+    version: v1
+  ports:
+  - nodePort: 30080
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  type: NodePort
+```
+
+As you can see in the manifest, we're connecting to a Deployment with the label `version: v1`. 
+
+To make it work, we have to give this label to the Pods of our Deployment that is up and running:
+
+```bash
+kubectl patch deployment myapp-v1 -p '{"spec": {"template": {"metadata": {"labels": {"version": "v1"}}}}}'
+```
+
+This will restart the existing Pods with a Rolling Update. To confirm that every pod is labeled correctly:
+
+```bash
+kubectl get pods --show-labels
+# NAME                            READY   STATUS    RESTARTS   AGE   LABELS
+# myapp-v1-74cffc64c9-2xsc6       1/1     Running   0          13s   app=myapp-v1,pod-template-hash=74cffc64c9,version=v1
+# myapp-v1-74cffc64c9-8gkr7       1/1     Running   0          10s   app=myapp-v1,pod-template-hash=74cffc64c9,version=v1
+# myapp-v1-74cffc64c9-jcbft       1/1     Running   0          13s   app=myapp-v1,pod-template-hash=74cffc64c9,version=v1
+# myapp-v1-74cffc64c9-lttfc       1/1     Running   0          10s   app=myapp-v1,pod-template-hash=74cffc64c9,version=v1
+```
+
+Okay, this worked! Now, apply the Service:
+
+```yaml
+kubectl apply -f myapp-service.yaml
+```
+
+Alright. We can now send traffic to the Service and see if we receive the correct response from one of the `myapp-v1` Pods. To achieve this, we spin up a temporary container which serves a *nginx* image and makes a request to the internal URL of the Service:
+
+```bash
+ k run temp --image=nginx --restart=Never -i --rm -- curl http://myapp.default.svc.cluster.local
+   # % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 # Dload  Upload   Total   Spent    Left  Speed
+# 100    45  100    45    0     0    975      0 --:--:-- --:--:-- --:--:--  1000
+# <html><body><h1>It works!</h1></body></html>
+```
+
+This is the response we wanted to receive!
+
+Our application is now ready for a blue/green deployment, but it still serves the old image. 
+
+Let's fix that and create a new Deployment first, which serves up the new container image:
+
+```bash
+kubectl create deployment myapp-v2 --image=nginx:alpine --replicas=4
+```
+
+Now, add a new label called `version: v2` to the Pods:
+
+```bash
+kubectl patch deployment myapp-v2 -p '{"spec": {"template": {"metadata": {"labels": {"version": "v2"}}}}}'
+```
+
+Let's take a look at all running Pods and verify we've got 8 Pods running in total (4 for `v1` and 4 for `v2`):
+
+```bash
+kubectl get pods 
+# NAME                            READY   STATUS    RESTARTS   AGE   
+# myapp-v1-74cffc64c9-2xsc6       1/1     Running   0          20m   
+# myapp-v1-74cffc64c9-8gkr7       1/1     Running   0          20m   
+# myapp-v1-74cffc64c9-jcbft       1/1     Running   0          20m   
+# myapp-v1-74cffc64c9-lttfc       1/1     Running   0          20m  
+# myapp-v2-55fd57c4c6-7ps2t       1/1     Running   0          46s
+# myapp-v2-55fd57c4c6-jn5wc       1/1     Running   0          47s
+# myapp-v2-55fd57c4c6-mgd79       1/1     Running   0          45s
+# myapp-v2-55fd57c4c6-xgkpk       1/1     Running   0          45s
+```
+
+Right now, we're in the phase where the Pods could be tested to see if everything is running properly. In our scenario, we'll spin up a temporary Pod again and route traffic to one of the new Pods.
+
+First, let's check the IP addresses for our `v2` Pods:
+
+```bash
+kubectl get pods -l version=v2 -o wide
+# NAME                            READY   STATUS    RESTARTS   AGE   IP             NODE         
+# myapp-v2-57dd85dcd7-9h8gt       1/1     Running   0          21m   192.168.0.15   controlplane   
+# myapp-v2-57dd85dcd7-sqfh4       1/1     Running   0          21m   192.168.0.17   controlplane   
+# myapp-v2-57dd85dcd7-tzt6s       1/1     Running   0          21m   192.168.0.16   controlplane   
+# myapp-v2-57dd85dcd7-xqld2       1/1     Running   0          21m   192.168.0.14   controlplane   
+```
+
+After that, we spin up our temporary Pod again and test the connection:
+
+```bash
+kubectl run temp --image=nginx --restart=Never -i --rm -- curl http://192.168.0.15
+#   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+#                                 Dload  Upload   Total   Spent    Left  Speed
+# 100   615  100   615    0     0    98k      0 --:--:-- --:--:-- --:--:--  100k
+# <!DOCTYPE html>
+# <html>
+# <head>
+# <title>Welcome to nginx!</title>
+# <style>
+# html { color-scheme: light dark; }
+# body { width: 35em; margin: 0 auto;
+# font-family: Tahoma, Verdana, Arial, sans-serif; }
+# </style>
+# </head> 
+# <body>
+# <h1>Welcome to nginx!</h1>
+# <p>If you see this page, the nginx web server is successfully installed and
+#working. Further configuration is required.</p>
+
+# <p>For online documentation and support, please refer to
+# <a href="http://nginx.org/">nginx.org</a>.<br/>
+# Commercial support is available at
+# <a href="http://nginx.com/">nginx.com</a>.</p>
+
+# <p><em>Thank you for using nginx.</em></p>
+# </body>
+# </html>
+```
+
+Great! This looks like the default response from *nginx*. In a real-world application, we could test the application a bit more, of course. For example, if the new features are working properly or if a critical bug is fixed correctly.
+
+We're ready now to route our application traffic to the new Pods and terminate all old Pods.
+
+Achieving this is fairly easy. All we have to do now is to switch `spec.selector.version` to `v2` in your Service:
+
+```bash
+kubectl patch service myapp -p '{"spec": {"selector": {"version": "v2"}}}'
+```
+
+This tells the Service now to route all incoming traffic to the Pods with the label `version v2`. Let's verify it:
+
+```bash
+kubectl run temp --image=nginx --restart=Never -i --rm -- curl http://myapp.default.svc.cluster.local
+#   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+#                                 Dload  Upload   Total   Spent    Left  Speed
+# 100   615  100   615    0     0    98k      0 --:--:-- --:--:-- --:--:--  100k
+# <!DOCTYPE html>
+# <html>
+# <head>
+# <title>Welcome to nginx!</title>
+# <style>
+# html { color-scheme: light dark; }
+# body { width: 35em; margin: 0 auto;
+# font-family: Tahoma, Verdana, Arial, sans-serif; }
+# </style>
+# </head> 
+# <body>
+# <h1>Welcome to nginx!</h1>
+# <p>If you see this page, the nginx web server is successfully installed and
+#working. Further configuration is required.</p>
+
+# <p>For online documentation and support, please refer to
+# <a href="http://nginx.org/">nginx.org</a>.<br/>
+# Commercial support is available at
+# <a href="http://nginx.com/">nginx.com</a>.</p>
+
+# <p><em>Thank you for using nginx.</em></p>
+# </body>
+# </html>
+```
+
+Amazing! We're now receiving the default response from nginx, which means that the blue/green deployment was successful. We can now delete the old Deployment, which also removes the associated resources (ReplicaSet and Pods):
+
+```bash
+kubectl delete deployment myapp-v1
+```
+
+As you have seen, this strategy allows for thorough testing in production-like conditions before fully switching users to the new version. It’s ideal for critical updates where a fail-safe rollback mechanism is necessary.
+
+Before we move to the next strategy, let's clean everything up and create our starting position:
+
+```bash
+kubectl delete svc myapp
+```
+
+```bash
+kubectl create deployment myapp-v1 --image=httpd:alpine --replicas=4
+```
+
+---
+### Canary
+The Canary deployment strategy is highly flexible and allows for a gradual rollout of new features or updates. In a Canary deployment, a small portion of user traffic is directed to the new version while most users continue using the old version. 
+
+This approach is great for testing updates on a subset of real user traffic and monitoring their impact. If the canary release performs well, it can gradually be scaled up to full deployment; if not, it’s easy to revert to the previous version with minimal user impact.
+
+So, you're testing the waters carefully before rolling it completely out.
+
+The term **canary** comes from canary birds that were used in coal mines to detect toxic gases. In software development, a canary deployment is similar to this because it's a way to detect errors in a new version.
+
+In our scenario, we would like to route 25% (1 Pod) of the traffic to the new version of our application and 75% (3 Pods) to the old. This will be a starting point for further tests to see if the new version is running correctly.
+
+First, let's create the deployment that serves the *nginx:alpine* image with one replica:
+
+```kubectl
+kubectl create deployment myapp-v2 --image=nginx:alpine --replicas=1
+```
+
+To hit the percentages from above, we have to scale our `myapp-v1` Deployment down to 3 replicas:
+
+```bash
+kubectl scale --replicas=3 deployment/myapp-v1
+```
+
+When we now check our running Pods, it should look like this:
+
+```bash
+kubectl get pods 
+# NAME                            READY   STATUS    RESTARTS   AGE   
+# myapp-v1-74cffc64c9-2xsc6       1/1     Running   0          20m   
+# myapp-v1-74cffc64c9-8gkr7       1/1     Running   0          20m   
+# myapp-v1-74cffc64c9-jcbft       1/1     Running   0          20m    
+# myapp-v2-55fd57c4c6-7ps2t       1/1     Running   0          46s
+```
+
+Now, only a smaller amount of the traffic is redirected to the `v2` version of our application. In a real-world scenario, this would be the phase now where we check if the new version is performing and running properly. We could check the KPIs (Key Performance Indicators) in our monitoring tools and receive user feedback about the new version, for example.
+
+A typical workflow could look like this:
+
+1) The KPIs (Key Performance Indicators), such as response time and error rates, are measured
+2) Newly measured performance is compared with that of previous versions
+3) If the new version performs well, traffic to the new version is gradually increased (e.g. 10%, 25%, 50%, etc.)
+4) If the new version still performs well and no significant errors are found, all traffic is now directed to the new version
+5) If bugs are found at any time or poorer performance is detected, traffic is rolled back to a previous stable version
+
+Tools like **ArgoCD** support this kind of strategy natively. For example, you can specify a `Rollout` Manifest that would look like this in our scenario: 
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: myapp
+spec:
+  replicas: 4
+  strategy:
+    canary:
+      steps:
+        - setWeight: 25   # 👈 Route 25% of traffic to the new version
+          pause:
+            duration: 1h  # 👈 Pause for 1 hour
+        - setWeight: 50   # 👈 Increase to 50% of traffic
+          pause:
+            duration: 1h  # 👈 Pause for 1 hour
+        - setWeight: 100  # 👈 Route all traffic to the new version
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+        - name: myapp
+          image: nginx:alpine
+```
+
+This automatically increases the traffic to the new version until all traffic is redirected to it. You can specify pause times and percentages on how much traffic should be redirected. You can read more about it in the [official docs](https://argo-rollouts.readthedocs.io/en/stable/features/canary/).
+
+In summary, canary deployments are popular for applications that require frequent updates and for teams that want real-world validation of changes before a full rollout.
+
+---
+# Conclusion
+Choosing the right Kubernetes deployment strategy is a key step in managing and scaling applications efficiently while minimizing downtime and ensuring a smooth user experience.
+
+Each deployment strategy—whether Recreate, Rolling Update, Blue/Green, or Canary—comes with unique strengths and is suited to specific use cases, depending on factors like application type, user impact tolerance, and deployment frequency.
+
+Understanding these deployment strategies equips teams with the flexibility to make informed decisions based on their specific operational needs and risk thresholds. In today’s fast-evolving tech landscape, selecting the right deployment approach can make all the difference in delivering seamless updates, enhancing application resilience, and ensuring a positive experience for end users. 
+
+By leveraging Kubernetes’ powerful deployment options, you can continuously innovate with confidence, knowing you have control over both the speed and stability of their release process.
+
+I hope you've had as much fun as I have! Can't wait to see you in the next blog post.
