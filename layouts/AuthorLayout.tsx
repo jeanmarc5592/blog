@@ -2,6 +2,7 @@ import { ReactNode } from 'react'
 import type { Authors } from 'contentlayer/generated'
 import SocialIcon from '@/components/social-icons'
 import Image from '@/components/Image'
+import certifications from '@/data/certifications'
 
 interface Props {
   children: ReactNode
@@ -48,6 +49,18 @@ export default function AuthorLayout({ children, content }: Props) {
               >
                 Resume
               </a>
+            </div>
+            <div className="mt-10">
+              {certifications.map((certification, index) => (
+                <a
+                  key={`${certification.name}-${index}`}
+                  href={certification.href}
+                  target="_blank"
+                  className="mr-2 text-primary-500 underline"
+                >
+                  {certification.name}
+                </a>
+              ))}
             </div>
           </div>
           <div className="prose max-w-none pb-8 pt-8 dark:prose-invert xl:col-span-2">
