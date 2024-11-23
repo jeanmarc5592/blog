@@ -1,0 +1,711 @@
+---
+title: 'Ultimate Guide to Request, Response, and Error Logging in Nest.js'
+date: '2024-11-23'
+tags: ['Nest.js', 'Logging']
+summary: 'Explore the top Kubernetes deployment strategies—Recreate, Rolling Updates, Blue/Green, and Canary—to learn how each approach supports seamless application updates, minimizes downtime, and optimizes user experience.'
+---
+
+# Introduction
+
+In modern web application development, effective logging is not just a convenience—it’s a necessity. Proper logging enables developers to monitor application behavior, debug issues efficiently, and enhance user experience by quickly identifying and resolving errors. Nest.js provides a robust and flexible structure to implement logging mechanisms tailored to your application’s needs.
+
+Whether building a small application or managing a complex microservices architecture, understanding how to handle **request, response, and error logging** is critical. This blog post will guide you through the essentials of setting up and customizing logging in a Nest.js application. From intercepting incoming requests and logging their details to tracking outgoing responses and capturing errors effectively, you’ll gain a thorough understanding of the tools and techniques available in Nest.js.
+
+By the end of this guide, you’ll have a fully operational logging system in your Nest.js application, ensuring you’re equipped to handle everything from basic monitoring to advanced debugging scenarios. Whether you’re a seasoned developer or new to Nest.js, this tutorial will provide valuable insights to elevate your application’s logging strategy. Let’s dive in!
+
+---
+# Project Setup
+
+First of all, let's create a new Nest.js application:
+
+```bash
+nest new error-logging
+```
+
+For our custom logger, we will leverage `winston`, which allows us to export our logs to external tools like Logstash or Sentry. To make our logs more readable, we'll also need the `colors` package, and for generating correlation IDs, we'll add the `uuid` package:
+
+```bash
+npm install winston colors uuid
+```
+
+Now, let's do a spring cleaning and eliminate the dummy *hello world* endpoint.
+
+```ts
+// app.controller.ts
+import { Controller} from '@nestjs/common';
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+}
+```
+
+```ts
+// app.service.ts
+import { Injectable } from '@nestjs/common';
+
+@Injectable()
+export class AppService {}
+```
+
+We'll fill these two later with code where we throw different kinds of errors and exceptions. But first things first. Let's implement our custom logger!
+
+---
+# Custom Logger
+
+Implementing a custom logger has the benefit that we can control what will be logged, when it will be logged, and how the logs look like. To achieve that, we first need a new service:
+
+```bash
+nest g service logger
+```
+
+This will create a new service in your project that will be empty for now:
+
+```ts
+// logger.service.ts
+@Injectable()
+export class LoggerService {}
+```
+
+### Create a new `winston` logger
+We've already installed `winston`, which allows us to export the logs to an external platform because when we run our application in production, it's more likely to have a third-party platform that aggregates our logs. If something goes wrong and we need to find the error as quickly as possible, we don't want to scroll through all logs in the console of our application. Instead, we need a third-party tool where we can filter and search. 
+
+To implement `winston` into our new service, we need to do the following:
+
+```ts
+// logger.service.ts
+import { Injectable } from '@nestjs/common';
+import { createLogger, format, LoggerOptions } from 'winston';
+
+@Injectable()
+export class LoggerService {
+  // 👇 Create options for our logger
+  private options: LoggerOptions = {
+    level: 'info',
+    format: format.combine(
+      format.timestamp(),
+      format.json(),
+      this.logFormat(),
+    ),
+    transports: [],
+  };
+
+  // 👇 Instantiate the new logger with the defined options
+  private logger = createLogger(this.options);
+
+  // 👇 Add coloredMessage
+  private coloredMessage: string;
+}
+```
+
+We first create the options for the logger, where we set the log level and the format of our logs. If you want to read more about this, you can check it out [here](https://github.com/winstonjs/winston?tab=readme-ov-file#formats). The method `logFormat` is currently not implemented, but we'll do it in a few moments.
+
+After that, we instantiate the new logger, save it in a private property `logger`, and add the `coloredMessage` property, which will be used later when we adjust our logs.
+
+### Add log-level methods
+As you might know, there are different log levels for different use cases. For `winston`, we've got [these here](https://github.com/winstonjs/winston?tab=readme-ov-file#logging-levels). In our case, we don't need all of them. I think `info`, `error`, `warning`, and `debug` will be enough for now. But you can always extend it as you like.
+
+For every log level, we need to implement a method in our service that can be called from the outside. On the inside, the method calls the individual method of our logger instance:
+
+```ts
+// logger.service.ts
+import { Injectable } from '@nestjs/common';
+import { createLogger, format, LoggerOptions } from 'winston';
+
+// 👇 Add Logger Context
+interface LoggerContext {
+  request?: {
+    method?: string;
+    url?: string;
+    headers?: Record<string, any>;
+    body?: Record<string, any>;
+    [key: string]: any; // 👈 Additional properties
+  };
+  response?: {
+    statusCode?: number;
+    headers?: Record<string, any>;
+    body?: Record<string, any>;
+    [key: string]: any; // 👈 Additional properties
+  };
+  [key: string]: any; // 👈 Additional properties
+}
+
+@Injectable()
+export class LoggerService {
+  private options: LoggerOptions = {
+    level: 'info',
+    format: format.combine(
+      format.timestamp(),
+      format.json(),
+      this.logFormat(),
+    ),
+    transports: [],
+  };
+
+  private logger = createLogger(this.options);
+
+  private coloredMessage: string;
+
+  // 👇 Add log level methods
+  info(message: string, context?: LoggerContext): void {
+    this.logger.info(message, { context });
+  }
+
+  error(message: string, trace?: any, context?: LoggerContext): void {
+    this.logger.error(message, { trace, context });
+  }
+
+  warn(message: string, context?: LoggerContext): void {
+    this.logger.warn(message, { context });
+  }
+
+  debug(message: string, context?: LoggerContext): void {
+    this.logger.debug(message, { context });
+  }
+}
+```
+
+As you can see, nothing fancy right here. We also create a new interface called `LoggerContext`, where we define the properties of the `context` argument in each method. This will help us to leverage the type checking of TypeScript.
+
+Encapsulating `winston` into a separate class is a common practice in OOP. One of the great benefits of this approach is that we have to change only the logic in this class when we decide to use a different logging package here. The services that use this don't care about *WHAT* logging tool is used at the end of the day. This is also separating the concerns.
+
+### Create the log format
+To enhance the readability and the formatting of our logs, we need to implement a method that handles this based on the log level. So, let's create our `logFormat` method:
+
+```ts
+// logger.service.ts
+import { Injectable } from '@nestjs/common';
+import { createLogger, format, LoggerOptions } from 'winston';
+
+interface LoggerContext {
+  request?: {
+    method?: string;
+    url?: string;
+    headers?: Record<string, any>;
+    body?: Record<string, any>;
+    [key: string]: any;
+  };
+  response?: {
+    statusCode?: number;
+    headers?: Record<string, any>;
+    body?: Record<string, any>;
+    [key: string]: any;
+  };
+  [key: string]: any;
+}
+
+@Injectable()
+export class LoggerService {
+  private options: LoggerOptions = {
+    level: 'info',
+    format: format.combine(
+      format.timestamp(),
+      format.json(),
+      this.logFormat(),
+    ),
+    transports: [],
+  };
+
+  private logger = createLogger(this.options);
+
+  private coloredMessage: string;
+
+  info(message: string, context?: LoggerContext): void {
+    this.logger.info(message, { context });
+  }
+
+  error(message: string, trace?: any, context?: LoggerContext): void {
+    this.logger.error(message, { trace, context });
+  }
+
+  warn(message: string, context?: LoggerContext): void {
+    this.logger.warn(message, { context });
+  }
+
+  debug(message: string, context?: LoggerContext): void {
+    this.logger.debug(message, { context });
+  }
+
+  // 👇 Add logFormat method
+  private logFormat() {
+    return format.printf(({ level, message, context, }: { level: string; message: string; context: LoggerContext; }) => {
+      const baseMessage = `[${level}] ${message}`;
+
+      this.colorizeMessage(level, baseMessage);
+      this.highlightCorrelationId();
+
+      return this.createLog(context);
+    });
+  }
+
+  // 👇 Add colorizeMessage method
+  private colorizeMessage(level: string, message: string) {
+    switch (level) {
+      case 'error':
+        this.coloredMessage = colors.red(message);
+        break;
+      case 'warn':
+        this.coloredMessage = colors.yellow(message);
+        break;
+      case 'info':
+        this.coloredMessage = colors.green(message);
+        break;
+      case 'debug':
+        this.coloredMessage = colors.blue(message);
+        break;
+      default:
+        this.coloredMessage = message;
+    }
+  }
+
+  // 👇 Add highlightCorrelationId method
+  private highlightCorrelationId() {
+    const uuidPattern =
+      /\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g;
+
+    const uuidMatches = this.coloredMessage.match(uuidPattern);
+
+    if (uuidMatches && uuidMatches.length > 0) {
+      const correlationId = uuidMatches[uuidMatches.length - 1];
+      const highlightedMessage = this.coloredMessage.replace(
+        correlationId,
+        colors.magenta(correlationId),
+      );
+
+      this.coloredMessage = highlightedMessage;
+    }
+  }
+
+  // 👇 Add createLog method
+  private createLog(context: LoggerContext) {
+    let finalLog = `${this.coloredMessage}`;
+
+    if (context?.request) {
+      const request = `Request: ${JSON.stringify(context.request, null, 2)}`;
+      finalLog += `\n${colors.cyan(request)}`;
+    }
+    
+    if (context?.response) {
+      const response = `Response: ${JSON.stringify(context.response, null, 2)}`;
+      finalLog += `\n${colors.cyan(response)}`;
+    }
+
+    return finalLog;
+  }
+}
+```
+
+Okay, let's break it down one after another. First of all, we add the `logFormat` method, which will be called in our logger's options. This is the place where we control what to log and what it looks like. 
+
+First of all, we implement the `colorizeMessage` method and call it. In there, we have a simple switch statement where we choose a different color for each log level. This helps us later to separate each log level.
+
+After that, we create and call `highlightCorrelationId`. A correlation ID is a unique identifier assigned to a request in an API. It helps track and link related logs for that request across different services, making it easier to debug and monitor processes end-to-end. To make a bit more stand out in our logs later, we're highlighting them.
+
+Finally, we implement the `createLog` method, where we put it all together. We take in the `context` that gives us information if we're inside a request or response. Based on that, we concatenate it as JSON with our already modified `coloredMessage`. This will be helpful later when we want to debug and want to see what's inside the request and the response.
+
+### Log to the console
+For the sake of this tutorial, we will log everything to the console of our application. To accomplish this, we only need to import the `transports` object from `winston` and add a new instance to the `transports` array of our logger options:
+
+```ts
+// logger.service.ts
+import { Injectable } from '@nestjs/common';
+import { createLogger, format, LoggerOptions, transports } from 'winston';
+
+@Injectable()
+export class LoggerService {
+  private options: LoggerOptions = {
+    level: 'info',
+    format: format.combine(
+      format.timestamp(),
+      format.json(),
+      this.logFormat(),
+    ),
+    transports: [
+      // 👇 Instantiate transports.Console
+      new transports.Console({
+        format: format.combine(format.colorize(), this.logFormat()),
+ .    }),
+    ],
+  };
+
+  // ...
+}
+```
+
+This will log everything now to the console of our application server. As far as I know, there are transports for nearly every established third-party logging tool available. This is why `winston` is really powerful and highly adaptable. 
+
+The `LoggerService` is the tool now that we'll use to log all incoming requests and outgoing responses. Furthermore, we're also able to use it when logging all kinds of exceptions and errors in our API.
+
+Let's see how we can do it!
+
+---
+# Log Requests and Responses
+
+The idea is to log our requests and responses as efficiently as possible. That means we **don't** want to import the `LoggerService` in every controller, for example, and do something like `loggerService.info()` manually. It would be most efficient if we find a central place where we can handle this.
+
+Luckily, Nest.js has us covered and allows us to implement a global **interceptor** where we can hook in between the incoming request and the outgoing response.
+
+Let's first create a `LoggingInterceptor`:
+
+```bash
+nest g interceptor interceptors/logging --no-spec --flat
+```
+
+After that, you should have a new directory called *interceptors* with a new *logging.interceptor.ts* file. When you open it, you can see that we have a new class, `LoggingInterceptor,` which implements the interface `NestInterceptor`. To satisfy this interface, an `intercept` method is mandatory where all the magic happens.
+
+```ts
+// logging.interceptor.ts
+@Injectable()
+export class LoggingInterceptor implements NestInterceptor {
+  intercept(context: ExecutionContext, next: CallhHandler): Observable<any> {
+    return next.handle();
+  }
+}
+```
+
+Inside this method, we have two access points. The first one is before the `return`, where we have access to the request. The second one is with the return statement, where we can access the response. Since we're returning an observable right here, we can call `pipe` on the `handle` method.
+
+If you want to get to know these concepts more in-depth, check out the [official docs](https://docs.nestjs.com/interceptors) or [my blog post](https://www.jean-marc.io/blog/turbocharge-your-nest.js-app-with-interceptors-unlock-advanced-functionality), where we cover interceptors in more detail.
+### Log request
+Let's start with logging the incoming request first:
+
+```ts
+@Injectable()
+export class LoggingInterceptor implements NestInterceptor {
+  constructor(private readonly loggerService: LoggerService) {}
+
+  intercept(context: ExecutionContext, next: CallhHandler): Observable<any> {
+    const request = context.switchToHttp().getRequest();
+    const { ip, method, url, body, headers } = request;
+
+    const correlationId = uuidv4();
+    request.correlationId = correlationId;  
+
+    this.loggerService.info(
+      `Incoming request: ${method} ${url} ${correlationId}`,
+    {
+      request: {
+        headers,
+        body,
+        ip,
+      },
+    });
+
+    return next.handle();
+  }
+}
+```
+
+We first grab the `request` object from the `context` and then extract all the parameters we want to log. After that, we create a new correlation ID, which will be written onto the `request` object. This is useful to extract the correlation ID later down the road.
+
+Finally, we call our `info` method, where we log the incoming request object.
+### Log response
+As I told you before, we need to hook into the `handle` method if we want to have access to the response. So we call `pipe` on it and log the response details.
+
+```ts
+@Injectable()
+export class LoggingInterceptor implements NestInterceptor {
+  constructor(private readonly loggerService: LoggerService) {}
+
+  intercept(context: ExecutionContext, next: CallhHandler): Observable<any> {
+    const request = context.switchToHttp().getRequest();
+    const { ip, method, url, body, headers } = request;
+
+    const correlationId = uuidv4();
+    request.correlationId = correlationId;  
+
+    this.loggerService.info(
+      `Incoming request: ${method} ${url} ${correlationId}`,
+    {
+      request: {
+        headers,
+        body,
+        ip,
+      },
+    });
+
+    // 👇 Add response code
+    const response = context.switchToHttp().getResponse();
+    const { statusCode } = response;
+    
+    return next.handle().pipe(
+      tap((responseBody) => {
+        this.loggerService.info(
+          `Response sent: ${method} ${url} ${correlationId} ${statusCode}`,
+        {
+          response: {
+            body: responseBody,
+            statusCode: statusCode,
+          },
+        });
+      }),
+    );
+  }
+}
+```
+
+We leverage the `tap` method from `rxjs` here because we're working with observables. You can read more on that [here](https://rxjs.dev/api/operators/tap). Inside there, we're calling again the `info` method from our `LoggerSerivce` and passing in the appropriate parameters. Of course, we can add more data to the log, like headers or any other data that is related to the response. Feel free to adjust it to your needs.
+
+Although our approach works fine, for now, we've got a problem. We're currently only logging positive responses like 2xx and 3xx. But our application will also throw error responses like 4xx and 5xx. To be able to log these responses as well, we need to catch the error in the `pipe` and re-throw it because then it will be caught by our global exception filter, which we'll implement later.
+
+```ts
+@Injectable()
+export class LoggingInterceptor implements NestInterceptor {
+  constructor(private readonly loggerService: LoggerService) {}
+
+  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    const request = context.switchToHttp().getRequest();
+    const { ip, method, url, body, headers } = request;
+
+    const correlationId = uuidv4();
+    request.correlationId = correlationId;  
+
+    this.loggerService.info(
+      `Incoming request: ${method} ${url} ${correlationId}`,
+    {
+      request: {
+        headers,
+        body,
+        ip,
+      },
+    });
+
+	const response = context.switchToHttp().getResponse();
+    const { statusCode } = response;
+
+    return next.handle().pipe(
+      tap((responseBody) => {
+        this.loggerService.info(
+          `Response sent: ${method} ${url} ${correlationId} ${statusCode}`,
+        {
+          response: {
+            body: responseBody,
+            statusCode: statusCode,
+          },
+        });
+      }),
+      // 👇 Add catchError
+      catchError((error) => {
+        const statusCode = error?.status || HttpStatus.INTERNAL_SERVER_ERROR;
+
+        this.loggerService.error(
+          `Error occurred: ${method} ${url} ${correlationId} ${statusCode}`,
+        {
+          response: {
+            message: error.message,
+            stack: error.stack,
+            statusCode,
+          },
+        });
+
+        return throwError(() => error);
+      }),
+    );
+  }
+}
+```
+
+To catch error responses, we use the `catchError` method from `rxjs`. Here's a [quick reference](https://rxjs.dev/api/index/function/catchError). Inside there, we call the `error` method from our `LoggerService` with the specific data. The re-throw of the error happens last. 
+### Hook it up
+Alright! Our interceptor is now created but not used yet. To be able to use it globally across our application, we need to add it to the `providers` of our `AppModule`:
+
+```ts
+// app.module.ts
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { LoggerService } from './logger/logger.service';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { LoggingInterceptor } from './interceptors/logging.interceptor';
+
+@Module({
+  imports: [],
+  controllers: [AppController],
+  providers: [
+    AppService,
+    LoggerService,
+    // 👇 Add LoggingInterceptor globally
+    { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
+  ],
+})
+export class AppModule {}
+```
+
+We're using the `APP_INTERCEPTOR` constant from Nest.js to tell it that we want to use the `LoggingInterceptor` globally. 
+
+That's it! Now, we're able to test our request and response logging properly.
+
+### Test it
+Let's create three new endpoints in our `AppController`:
+
+```ts
+import { BadRequestException, Controller, Get } from '@nestjs/common';
+
+@Controller()
+export class AppController {
+  @Get('exception')
+  getException() { 
+    throw new BadRequestException('Something went wrong');
+  }
+  
+  @Get('error')
+  getError() {
+   throw new Error('This is an unhandled error');
+  }
+
+  @Get('health')
+  getHealth() {
+    return 'Everything is healthy';
+  }
+}
+```
+
+Nothing fancy right here. But it will be enough for our testing purposes. Spin your development server up and test them out! 
+
+In your console, you should see something like this:
+
+**Exception**
+![Image One](/static/images/blog/nest.js-logging/img-one.png)
+
+**Error**
+![Image Two](/static/images/blog/nest.js-logging/img-two.png)
+
+**Health**
+![Image Three](/static/images/blog/nest.js-logging/img-three.png)
+
+---
+# Log Exceptions and unhandled Errors
+
+Now, let's see how we can use our `LoggerService` to log errors inside our API. It's the same idea as the logging of requests and responses. We don't want to call our logger every time an error or exception is thrown. There might be later special cases where we have to do this, but the majority should be caught in one place where the logging happens.
+
+Luckily, Nest.js got us covered in that case as well. We will set up a global exception filter where all exceptions and other errors are caught. If you'd like to read more about filters in Nest.js, you can do it [here](https://docs.nestjs.com/exception-filters).
+### Create Exception Filter
+Let's start with creating a new exception filter:
+
+```bash
+nest g filter filters/all-exceptions --no-spec
+```
+
+This will create a new `AllExceptionsFilter` that looks like this:
+
+```ts
+// all-exceptions.filter.ts
+import { ArgumentsHost, Catch, ExceptionFilter } from '@nestjs/common';
+
+@Catch()
+export class AllExceptionsFilter<T> implements ExceptionFilter {
+  catch(exception: T, host: ArgumentsHost) {}
+}
+```
+
+Now, we can implement the logic of the `catch` method:
+
+```ts
+// all-exceptions.filter.ts
+import {
+  ArgumentsHost,
+  Catch,
+  ExceptionFilter,
+  HttpException,
+} from '@nestjs/common';
+import { LoggerService } from '../logger/logger.service';
+
+@Catch()
+export class AllExceptionsFilter implements ExceptionFilter {
+
+  constructor(private readonly loggerService: LoggerService) {}
+
+  // 👇 Add logic to catch method
+  catch(exception: unknown, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse();
+    const request = ctx.getRequest();
+    const { headers } = request;
+
+    const status = exception instanceof HttpException ? exception.getStatus() : 500;
+    const errorId = Date.now();
+
+    const error = {
+      headers,
+      errorId,
+      statusCode: status,
+      path: request.url,
+      method: request.method,
+      message: exception['message'] || null,
+    };
+
+    this.loggerService.error(JSON.stringify(error, null, 2));
+
+    if (exception instanceof Error && exception.stack) {
+      this.loggerService.error(exception.stack);
+    }
+
+    response.status(status).json({ errorId, ...exception['response'] });
+  }
+}
+```
+
+Let's break down what happens here:
+
+1. We're extracting all the required objects like `response`, `request`, and `headers`. 
+2. Now, we're defining a `status`, which is either the status of the `HttpException` if it's thrown. Otherwise, we set a default status code to 500. For example, when we throw an Error in our application, the response will have the 500 status. 
+3. Next, we create an `errorId` which is a timestamp. Since this is unique, it will later be very helpful to search through our logs for that ID to find a specific error lightning fast. Since this is included in the response, a developer can take a look into the response body, recognize the `errorId`, and search for it in the logs of the API to receive more information about the error.
+4. Then, we're specifying how our `error` looks like that will be logged later, and if it has a stack trace, we also log it. This will help debug the error.
+5. Finally, the response is sent to the client with the new `errorId`. 
+
+### Hook it up
+As for our global interceptor, we need to wire our new exception filter up in our `app.module.ts` to make it globally available:
+
+```ts
+// app.module.ts
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { LoggerService } from './logger/logger.service';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { LoggingInterceptor } from './interceptors/logging.interceptor';
+import { AllExceptionsFilter } from './filters/all-exceptions.filter';
+
+@Module({
+  imports: [],
+  controllers: [AppController],
+  providers: [
+    AppService,
+    LoggerService,
+    // 👇 Add exceptions filter globally
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
+  ],
+})
+export class AppModule {}
+```
+
+### Test it
+Now, we can test the filter and its logs. To make this blog post a bit more engaging, I would like you to create some exceptions and errors by yourself and see how the logs are looking. You can use the existing endpoints and see how the logs are looking now when an error or exception occurs. But you can also come up with new scenarios.
+
+Here are some ideas you could adopt:
+
+1. Create a new endpoint in your controller and throw a different HttpException (e.g., `ForbiddenException`)
+2. Throw an error at a different level, for example, in your `AppService`.
+3. Set up a DTO to validate request bodies, attach it to a `POST` endpoint, and send a wrong request body to that endpoint.
+
+In every case, you should have an individual error log along with the request and responses in your terminal. Take a close look at it and maybe adjust it to your needs.
+
+### How you can proceed
+To take your error logging to the next level, you can now leverage the `transports` from `winston` to export your logs to an external logging tool where they're aggregated. Of course, you should consider transporting only logs with the level `error`, for example, to keep your logging platform as clean as possible. Furthermore, you could also think about to only logging requests and responses in `development` mode. 
+
+The purpose of this post is to create the foundation with you here and allow you to adjust it to your needs. Have fun with it!
+
+---
+# Conclusion
+Wow! That was a fun ride. I hope you had as much fun as I had writing this stuff here. 
+
+Effective logging is the backbone of any well-maintained application, providing crucial insights into how your system behaves and enabling swift responses to issues as they arise. In this guide, we’ve explored the fundamentals of request, response, and error logging in Nest.js, diving deep into the tools and techniques you can use to implement a comprehensive logging strategy.
+
+From leveraging `winston` to crafting custom interceptors and exception filters, you’ve seen how to capture and enrich logs with meaningful contextual data.
+
+By implementing these practices, you not only strengthen your application’s debugging capabilities but also lay the foundation for improved user experience and operational efficiency. A well-structured logging system turns raw data into actionable insights, empowering your team to monitor, troubleshoot, and optimize your application with confidence.
+
+As you continue your development journey, remember that logging isn’t a one-time setup—it’s an evolving process. Regularly review your logging strategy, fine-tune it to meet your application’s needs, and ensure it aligns with your team’s workflows and objectives. With a robust logging system in place, your Nest.js application is poised for reliability and success in production.
+
+Can't wait to see you in one of my next posts!
