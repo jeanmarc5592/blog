@@ -8607,6 +8607,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"next-plausible@npm:^3.12.4":
+  version: 3.12.4
+  resolution: "next-plausible@npm:3.12.4"
+  peerDependencies:
+    next: "^11.1.0 || ^12.0.0 || ^13.0.0 || ^14.0.0 || ^15.0.0 "
+    react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+    react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+  checksum: f8ae32eae3b8f4f45e1bdf1ab1aaf6be9ff184468c90253f4920a0cca01b426610c7ac85d082970e614f6f05b3679b9e68aae13ee5081a3d5bd003baaf11005a
+  languageName: node
+  linkType: hard
+
 "next-themes@npm:^0.2.1":
   version: 0.2.1
   resolution: "next-themes@npm:0.2.1"
@@ -10960,6 +10971,7 @@ __metadata:
     lint-staged: ^13.0.0
     next: 14.1.0
     next-contentlayer: 0.3.4
+    next-plausible: ^3.12.4
     next-themes: ^0.2.1
     pliny: 0.1.7
     postcss: ^8.4.24
