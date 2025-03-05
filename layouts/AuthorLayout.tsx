@@ -40,7 +40,7 @@ export default function AuthorLayout({ children, content }: Props) {
               <SocialIcon kind="linkedin" href={linkedin} />
               <SocialIcon kind="instagram" href={instagram} />
             </div>
-            <div className="mt-10">
+            {/* <div className="mt-10">
               <a
                 style={{ color: '#1B2329', textDecoration: 'none' }}
                 className="rounded-sm bg-primary-500 px-8 py-4 font-medium"
@@ -49,7 +49,7 @@ export default function AuthorLayout({ children, content }: Props) {
               >
                 Resume
               </a>
-            </div>
+            </div> */}
             <div className="mt-10">
               {certifications.map((certification, index) => (
                 <a
