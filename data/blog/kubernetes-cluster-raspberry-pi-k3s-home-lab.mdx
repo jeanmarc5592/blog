@@ -1,0 +1,282 @@
+---
+title: 'How to Build a Kubernetes Cluster with Raspberry Pi and K3s: Step-by-Step Home Lab Guide'
+date: '2025-03-11'
+tags: ['Kubernetes', 'DevOps', 'Raspberry Pi']
+summary: 'Learn how to set up a lightweight Kubernetes cluster using K3s on Raspberry Pi devices. This step-by-step guide covers everything from initial setup to connecting your cluster from a local machine.'
+---
+
+# Introduction
+
+If you’re like me and love tinkering with small computers and learning new technologies, setting up a Kubernetes cluster on Raspberry Pis is one of the most fun and rewarding home lab projects you can do. It’s hands-on, relatively inexpensive, and gives you a real-world feel for how Kubernetes works — but at a smaller scale.
+
+In this post, I’ll guide you through setting up a K3s-powered Kubernetes cluster on Raspberry Pi 4s, starting with the control plane and adding a worker node. We’ll configure everything from scratch, including SSH access, system prep, K3s installation, and connecting to the cluster from your local machine. 
+
+Whether you’re doing this for fun, learning, or as a base for other self-hosted projects, this guide is meant to be approachable, straightforward, and easy to follow — even if you’re just getting started with Kubernetes.
+
+---
+# Hardware
+
+### What you need
+Before we actually start, we need the hardware of course. Generally, you're free to choose and the Pi's should fit to your individual needs. But I would not overcomplicate things here and don't spend a ton of money. It's important to get started and adjustments can follow later.
+
+Here's my basic setup to get started:
+
+- 2x Raspberry Pi 4 Model B (4GB RAM)
+- 2x USB-C power supply 
+- 2x Raspberry Pi case (you can also buy )
+- 2x 32GB micro SD card
+- 1x 5-Port switch
+- 3x LAN cable
+
+Keep in mind that this is the most minimal setup to get started. If you want to handle larger workloads and distribute them more, you can buy more and more powerful Pis as your worker nodes. But for learning and training purposes this should work at the beginning.
+
+Now, let's set everything up!
+
+---
+# Setup control plane/master node
+
+### Preparations
+Before we start, we need to create a new SSH key pair to be able to connect to the Pis from your local machine:
+
+```bash
+# Generate a new SSH key pair for your Pi Cluster
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/pi-key
+```
+
+Follow the instructions in your terminal. Since this key pair is meant to be used for communication between humans and machine, I like to add a passphrase for it. It's not really necessary in our case, but I think it's a good practice in general. If you don't want to enter the passphrase all the time you can take a look at using an ssh-agent for your operating system. It'll cache your key and eliminate repeated passphrase prompts.
+
+After that, we can now add an operating system to our SD cards using the [Raspberry Pi Imager](https://www.raspberrypi.com/software/). Once downloaded and installed, you can choose your Raspberry Pi model, the OS, and your SD card. For the OS, I'm going with **Raspberry Pi OS (64-bit)**. 
+
+When you click on *Next*, don't forget to add your public SSH key to the settings. You can also give your Pi a name. I choose **controlplane** and my user is called **jean-marc**. Now you can write everything onto your SD card.
+
+When everything is installed, your SD card is plugged in and your Pi is connected to your home router, you can start connecting to it via SSH:
+
+```bash
+ssh -i ~/.ssh/pi-key jean-marc@controlplane.local
+```
+
+### Install software
+Once everything is prepared, we can now start to install the individual software we need before installing K3s:
+```bash
+# Update OS
+sudo apt update && sudo apt upgrade -y
+sudo reboot
+
+# Enable memory cgroups
+sudo nano /boot/firmware/cmdline.txt
+cgroup_memory=1 cgroup_enable=memory # 👈 Add this to the end of the existing line
+
+# Install iptables
+sudo apt install -y iptables iptables-persistent
+
+# Check iptables
+iptables --version
+sudo reboot
+
+# Install curl
+sudo apt install -y curl
+
+# Disable Swap (Kubernetes requires it)
+sudo dphys-swapfile swapoff
+sudo dphys-swapfile uninstall
+sudo systemctl disable dphys-swapfile
+sudo reboot
+
+# Check Swap is off
+free -h
+```
+
+Enabling the memory cgroups is an essential step to get Kubernetes running on our PIs. By default, the Raspberry Pi OS does not enable them, even though the kernel supports them. This is likely for performance reasons on low-resource devices. But Kubernetes won't even start without it. It uses them to manage memory limits on our pods, which is a fundamental mechanism to allocate resources properly. In other words, Kubernetes cannot set or enforce memory limits on pods and cannot gather memory stats for metrics and scheduling.
+
+As you saw, we also installed the Linux tool `iptables`which is used to configure the kernel's built-in firewall and packet routing rules via `netfilter`. In the context of Kubernetes (and K3s) it plays a crucial in routing traffic between pods, services, and external networks (like my MacBook accessing a pod). When K3s is installed, it sets up a virtual Kubernetes network between pods and services and to make it work it uses `iptables`. 
+
+We need to disable `swap` here because it's required in Kubernetes. If you're not familiar with it, it's a portion of the storage (SD card, SSD, etc.) used as "virtual memory" when RAM is full. You can read more on that topic [here](https://leizhilong.github.io/post/why-swap-should-be-disabled-on-kubernetes/). 
+
+Now we can install K3s:
+```bash
+# Install K3s
+curl -sfL https://get.k3s.io | sh -
+
+# Check and verify it's running
+sudo systemctl status k3s
+sudo k3s kubectl get nodes
+sudo k3s kubectl get pods -A
+```
+
+To work more conveniently with `kubectl` without `sudo`, let's set our `kubeconfig`:
+```bash
+# Use kubectl as your user (without sudo)
+mkdir -p ~/.kube
+sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+sudo chown $USER:$USER ~/.kube/config
+echo 'export KUBECONFIG=~/.kube/config' >> ~/.bashrc
+source ~/.bashrc
+
+# Verify it's working without sudo
+kubectl get pods -A
+```
+
+To use `kubectl` as a regular user on your control plane, you’ll need to copy the Kubernetes configuration file that K3s generates. This file is located at `/etc/rancher/k3s/k3s.yaml` and contains the credentials and API endpoint needed to connect to your cluster. By copying it to your user’s `.kube` directory and adjusting the file permissions, you make it accessible without needing root privileges. Additionally, setting the `$KUBECONFIG` environment variable ensures that `kubectl` knows where to find this config file, allowing you to interact with your cluster seamlessly from the command line.
+
+Another cherry on top I always like to do is to create an alias for the `kubectl` command because after a while I become tired of typing it all the time:
+```bash
+# Create an alias for kubectl
+echo 'alias k=kubectl' >> ~/.bashrc
+source ~/.bashrc
+
+# Verify it's working
+k get pods -A
+```
+
+That's it! We have set everything up to let our `control plane` Pi serve as the control plane in our cluster. Let's set up our first worker node next.
+
+---
+# Setup worker node
+
+### Preparations
+The preparations are the same as for the control plane. So you can repeat the whole **preparations** chapter for the control plane on your worker node. 
+
+### Install software
+Like the preparations, the installation of our basic software on the node is also the same as on the control plane. So, you can repeat these steps as well:
+```bash
+# Update OS
+sudo apt update && sudo apt upgrade -y
+sudo reboot
+
+# Enable memory cgroups
+sudo nano /boot/firmware/cmdline.txt
+cgroup_memory=1 cgroup_enable=memory # 👈 Add this to the end of the existing line
+
+# Install iptables
+sudo apt install -y iptables iptables-persistent
+
+# Check iptables
+iptables --version
+sudo reboot
+
+# Install curl
+sudo apt install -y curl
+
+# Disable Swap (Kubernetes requires it)
+sudo dphys-swapfile swapoff
+sudo dphys-swapfile uninstall
+sudo systemctl disable dphys-swapfile
+sudo reboot
+
+# Check Swap is off
+free -h
+```
+
+The interesting and different part comes now. Since our worker nodes don't act as the "brain" of our cluster, we don't need them to be that intelligent like the control plane. They are there to run our workloads and do the actual work. 
+
+So, we need to tell K3s somehow that it should install the required software for a worker node and not for the control plane. It sounds a bit harder than it is. 
+
+First, we need to log into our control plane again. On there, run these commands:
+```bash
+# Get internal IP for the control plane
+k get nodes -o wide
+
+# Get Node Token (used for worker nodes to register on the control plane)
+sudo cat /var/lib/rancher/k3s/server/node-token # 👈 Copy into your clipboard
+```
+
+After that, go to your worker node again and do the following to install K3s:
+```bash
+# Install K3s
+export K3S_URL="https://<CONTROLPLANE_INTERNAL_IP>:6443"
+export K3S_TOKEN="<NODE_TOKEN>"
+curl -sfL https://get.k3s.io | sh -
+
+# Check and verify it's running
+sudo systemctl status k3s-agent
+sudo journalctl -u k3s-agent -f
+```
+
+As you can see, the `curl` command is the same as for the control plane. The only difference is the definition of the two environment variables `K3S_URL` and `K3S_TOKEN`. With these two in place, K3s knows that this is a worker node and installs the appropriate software on it.
+
+To check if the worker node was successfully added to the cluster, you can check on the control plane again:
+```bash
+# Check if worker01 was connected successfully
+k get nodes # 👈 Should list "worker01"
+```
+
+That's it! For every worker you want to add to your cluster, it's the same process. But you can also automate it by writing your bash script that gets executed on every new worker node. Creating your own pre-configured Pi image with all the necessary tools is also a valid option. If you're seeking a more declarative automation, you can also use tools like Ansible.
+
+Now, you're ready to do all the kinds of stuff with Kubernetes you want. But for convenience, I have a little extra for you in the next chapter!
+
+---
+# Connect from your local machine
+
+Wow! We've came a long way so far and accomplished a lot. We set up our controlplane and a worker running in our home lab. How cool is that?
+
+I would like to take our setup even one step further. Right now, we can only interact with our cluster, when we log into the controlplane for example. On there we can use `kubectl` and do all the kinds of stuff. This is cool, but can become less convenient. I would like to connect from my local machine to the cluster via the terminal, a CLI like K9s or a tool like Lens. 
+
+The magic is in the configuration file we created earlier on our control plane under `~/.kube/config`. Let's go into our control and copy it into our clipboard:
+```bash
+# Get kubeconfig
+cat ~/.kube/config # 👈 Copy to clipboard
+```
+
+Since you're reading this post, I assume that you've worked with Kubernetes before on your machine. Therefore you already have a `~/.kube/config` file on your local machine. In order to have access to our Pi cluster, we need to merge the existing kubeconfig together with the one from the controlplane. 
+
+To accomplish this, follow these steps:
+```bash
+# Create a temporary config and paste the content into it
+nano ~/pi-kubeconfig.yaml
+server: https://<CONTROLPLANE_INTERNAL_IP>.6443 # 👈 Update
+name: pi-cluster # 👈 Update
+
+# Merge pi-kubeconfig to your existing kube config on your machine
+KUBECONFIG=~/.kube/config:~/pi-kubeconfig.yaml kubectl config view --flatten > ~/merged-kubeconfig.yaml
+mv ~/merged-kubeconfig.yaml ~/.kube/config
+```
+
+When you open the `~/.kube/config` now, you should see that a new member was added under `clusters`, `users`, and `contexts`. A little quirk of K3s is that it names everything by `default`. Let's update these entries:
+```bash
+# Open kubeconfig 
+nano ~/.kube/config
+```
+
+Update these entries:
+```yaml
+clusters:
+- cluster:
+    certificate-authority-data: <...>
+    server: https://<CONTROLPLANE_INTERNAL_IP>:6443 
+  name: pi-cluster 
+...
+
+users:
+- name: pi-user # 👈 Update
+  user:
+    token: <...>
+...
+
+contexts:
+- context:
+    cluster: pi-cluster # 👈 Update
+    user: pi-user # 👈 Update
+  name: pi-cluster # 👈 Update
+...
+```
+
+To verify everything worked properly, run these commands:
+```bash
+# Check contexts
+kubectl config get-contexts # 👈 Should list your pi-cluster
+
+# Switch to the context of the pi-cluster
+kubectl config use-context pi-cluster
+
+# Run a test command
+kubectl get pods -A # 👈 Should list all pods from all namespaces of your Pi cluster
+```
+
+---
+# Conclusion
+
+And that’s it — you’ve just built your very own Kubernetes cluster running on Raspberry Pis, right in your own home. You now have a fully functional control plane and at least one worker node ready to schedule workloads. Even better, you can access and manage your cluster from your local machine just like you would with any production cluster.
+  
+From here, the sky’s the limit: you can deploy apps, set up an Ingress controller, install monitoring tools like Prometheus, or play around with Helm charts. The great thing about this setup is that it’s small, modular, and easy to scale — just plug in another Pi, run the script, and boom: one more node in your cluster.
+
+Whether you’re doing this for learning, for fun, or for running actual workloads like Home Assistant or Pi-hole, you’ve now laid a solid foundation. Happy hacking — and welcome to the world of Kubernetes on the edge
