@@ -1,0 +1,183 @@
+---
+title: 'How to Overwrite Global Variables in GitLab Pipelines'
+date: '2025-06-13'
+tags: ['GitLab', 'DevOps', 'CI/CD']
+summary: 'Learn how to dynamically overwrite global variables in GitLab CI/CD pipelines to simplify your deployment workflows for branches and tags.'
+---
+
+# Introduction
+
+Lately, I was enhancing one of our CI/CD pipelines and preparing it for releasing our software to production. The overall strategy was to trigger the pipelines for the dev and staging environments through a push on the `dev` or `stage` branch, and to trigger the production pipeline by pushing a valid semver tag from `main`.
+
+We also tagged the Docker images that were built in the pipeline with the `$CI_COMMIT_SHORT_SHA` (the short version of the commit hash) for dev and staging. In production, however, we wanted to use the pushed Git tag in semver format as the tag for the Docker image.
+  
+A simplified version of the pipeline looked like this:
+
+```yaml
+variables:
+  IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+  DOCKER_IMAGE: registry.gitlab.com/<NAMESPACE>/<PROJECT_NAME>
+  DOCKER_DRIVER: overlay2
+  # ... 
+
+stages:
+  - docker build
+  # ...
+
+# ...
+docker build and push:
+  stage: docker build
+  image: docker:24.0.2
+  services:
+  - docker:24.0.2-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+  script:
+  - docker build -t $DOCKER_IMAGE:$IMAGE_TAG .
+  - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+  - docker push $DOCKER_IMAGE:$IMAGE_TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'
+      when: always
+    - if: '$CI_COMMIT_BRANCH == "stage"'
+      when: always
+    - when: never
+```
+
+As you can see, I was using the `$IMAGE_TAG` in the `docker build` and `docker push` commands to tag the built Docker image. In the `rules` section of that job, you can see that it was triggered by a push to the `dev` and `stage` branch. 
+
+To enable releasing to production, I needed to implement two things:
+
+1. Add another trigger to the docker build and push (and some other) jobs.
+2. Overwrite the `$IMAGE_TAG` variable to use the Git tag whenever a tag is pushed.
+
+Let’s walk through how to do that in the next section using a small demo project!
+
+---
+# Overwrite Variables
+
+### Preparations
+Let’s create a simple GitLab project and a short pipeline to demonstrate how variable overwrites work.
+
+Once you've created a new GitLab project, create the `.gitlab-ci.yaml` and add this:
+
+```yaml
+variables:
+  IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+
+stages:
+  - docker build
+
+docker build and push:
+  stage: docker build
+  script:
+    - echo $IMAGE_TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "stage"'
+      when: always
+    - when: never
+```
+
+Nothing fancy right now. Just commit something on the `stage` branch and observe how the `$IMAGE_TAG` is being printed in the pipeline. It should match the individual short commit hash, e.g. `8670dec8`. 
+
+After that, let's create our `stage` branch:
+
+```bash
+# Create and checkout "stage" branch from "main"
+git checkout -b stage
+```
+
+For this example, it’s sufficient to have just one additional branch besides `main`. 
+
+### New trigger
+Before we move on to overwriting the variable, let’s add a new rule to the job. This rule will trigger the job whenever a Git tag in a valid semver format is pushed.
+
+First, switch back to the `main` branch:
+
+```bash
+git checkout main
+```
+
+Now, modify the pipeline to include the new trigger:
+
+```yaml
+variables:
+  IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+
+stages:
+  - docker build
+
+docker build and push:
+  stage: docker build
+  script:
+    - echo $IMAGE_TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "stage"'
+      when: always
+    # 👇 Add new rule
+    - if: '$CI_COMMIT_TAG =~ /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[\w\.-]+)?(?:\+[\w\.-]+)?$/'
+	  when: always
+    - when: never
+```
+
+The variable `$CI_COMMIT_TAG` is a global GitLab CI variable, just like `$CI_COMMIT_SHORT_SHA`. With this new rule, the job will now also run whenever a Git tag in valid semver format is pushed.
+
+*One quick side note:*
+Currently, this rule allows tags to be pushed from any branch. In a real-world scenario, you might want to enhance the logic to ensure that tags can only be pushed from `main` to trigger the job.
+
+Now, let’s create and push a semver tag to test it:
+
+```bash
+git tag v0.0.1
+git push origin v0.0.1
+```
+
+You should see another pipeline being picked up, still printing the `$CI_COMMIT_SHORT_SHA` for now. Next, we’ll overwrite the `$IMAGE_TAG` variable to use the Git tag when it’s pushed!
+
+### Use git tag
+In your `.gitlab-ci.yml`, you can also define a `workflow` section. This runs globally before any jobs and is the perfect place to overwrite global variables used later in the pipeline.
+
+Add the following:
+
+```yaml
+variables:
+  IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+
+# 👇 Add workflow
+workflow:
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[\w\.-]+)?(?:\+[\w\.-]+)?$/'
+      variables:
+        IMAGE_TAG: "${CI_COMMIT_TAG}"
+    - if: '$CI_COMMIT_BRANCH == "stage"'
+    - when: never
+
+stages:
+  - docker build
+
+docker build and push:
+  stage: docker build
+  script:
+    - echo $IMAGE_TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "stage"'
+      when: always
+    - if: '$CI_COMMIT_TAG =~ /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[\w\.-]+)?(?:\+[\w\.-]+)?$/'
+	  when: always
+    - when: never
+```
+
+By adding the workflow section, we tell GitLab when to run the pipeline globally: either on pushes to `stage` or on valid semver tags. When a semver tag is pushed, the `$IMAGE_TAG` variable is overwritten to be equal to the Git tag. Otherwise, it remains the commit short SHA.
+
+Commit the changes and push another semver Git tag. You should now see that the pipeline job `docker build and push` prints the Git tag instead of the commit hash. This means you can use the `$IMAGE_TAG` variable across all jobs without adding custom logic inside each job.  
+
+In my case, I used it in about ten different jobs, and it was a huge relief to only have to modify the value once inside the workflow.
+
+---
+# Conclusion
+
+And that’s basically it! With just a few adjustments in the `workflow` section, we were able to overwrite our `$IMAGE_TAG` variable depending on whether we pushed a branch or a semver tag. This allows us to keep the pipeline clean, avoid duplicating logic inside every job, and stay flexible for future changes.
+
+In my real-world scenario, this small tweak made our production release process much more robust and maintainable. Instead of scattering conditional logic across multiple jobs, we centralize the logic once at the top and every job automatically picks up the right image tag.
+
+Hope this little guide helps you simplify your GitLab pipelines as well. Happy shipping!
