@@ -24,7 +24,7 @@ const layouts = {
 export async function generateMetadata({
   params,
 }: {
-  params: { slug: string[] }
+  params: Promise<{ slug: string[] }>
 }): Promise<Metadata | undefined> {
   const { slug: rawSlug } = await params
   const slug = decodeURI(rawSlug.join('/'))
@@ -81,7 +81,7 @@ export const generateStaticParams = async () => {
   return paths
 }
 
-export default async function Page({ params }: { params: { slug: string[] } }) {
+export default async function Page({ params }: { params: Promise<{ slug: string[] }> }) {
   const { slug: rawSlug } = await params
   const slug = decodeURI(rawSlug.join('/'))
   // Filter out drafts in production

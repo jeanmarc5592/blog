@@ -7,7 +7,6 @@ import path from 'path'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import {
-  remarkExtractFrontmatter,
   remarkCodeTitles,
   remarkImgToJsx,
   extractTocHeadings,
@@ -154,7 +153,6 @@ export default makeSource({
   mdx: {
     cwd: process.cwd(),
     remarkPlugins: [
-      remarkExtractFrontmatter,
       remarkGfm,
       remarkCodeTitles,
       remarkMath,
