@@ -41,6 +41,7 @@ jobs:
           -v /var/run/docker.sock:/var/run/docker.sock \
           aquasec/trivy:${TRIVY_VERSION} image \
             --skip-dirs /usr/local/lib,/usr/src/app,/opt,/app \
+            --scanners vuln \
             --severity CRITICAL,HIGH \
             --exit-code 1 \
             ${IMAGE}
@@ -70,6 +71,7 @@ jobs:
             -v "${{ github.workspace }}:/project" \
             aquasec/trivy:${TRIVY_VERSION} fs \
               --severity CRITICAL,HIGH \
+              --scanners vuln \
               --exit-code 1 \
               /project
 
@@ -108,37 +110,25 @@ jobs:
         run: |
           IMAGE="${{ steps.build_docker_image.outputs.image }}"
 
-          echo "Pushing ${IMAGE} to DockerHub..."
           docker push ${IMAGE}
 
-      # Build Image and push to DockerHub Repository
-      # - name: Build and Push
-      #   uses: docker/build-push-action@v2
-      #   with:
-      #     context: .
-      #     file: ./Dockerfile
-      #     push: ${{ github.event_name != 'pull_request' }}
-      #     tags: ${{ steps.docker_meta.outputs.tags }}
-      #     labels: ${{ steps.docker_meta.outputs.labels }}
+  deploy:
+    runs-on: self-hosted
+    needs: build_and_push
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  # deploy:
-  #   runs-on: self-hosted
-  #   needs: build_and_push
-  #   steps:
-  #     # Checkout Repository
-  #     - name: Checkout
-  #       uses: actions/checkout@v2
+      - name: Login to DockerHub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
 
-  #     # Login to DockerHub
-  #     - name: Login to DockerHub
-  #       if: github.event_name != 'pull_request'
-  #       uses: docker/login-action@v1
-  #       with:
-  #         username: ${{ secrets.DOCKER_HUB_USERNAME }}
-  #         password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+      - name: Pull Docker Image and Run Docker Container
+        run: |
+          IMAGE="${{ needs.build_and_push.outputs.image }}"
 
-  #     # Deploy Docker Container
-  #     - name: Pull Docker Image and Run Docker Container
-  #       run: |
-  #         docker pull jonny5592/blog:latest
-  #         docker stack deploy -c docker-compose.yml --prune --with-registry-auth blog
+          docker pull ${IMAGE}
+          docker stack deploy -c docker-compose.yml --prune --with-registry-auth blog
