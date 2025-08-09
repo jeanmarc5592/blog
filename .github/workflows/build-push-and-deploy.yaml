@@ -41,6 +41,22 @@ jobs:
           echo "Building Docker Image ${DOCKER_IMAGE}"
           docker build . -t ${DOCKER_IMAGE}
 
+          echo "image=$DOCKER_IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Scan Docker Image
+        run: |
+          TRIVY_VERSION=0.65.0
+          IMAGE="${{ steps.build_docker_image.outputs.image }}"
+
+          echo "Scanning Docker Image using Trivy v${TRIVY_VERSION}"
+          docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy:${TRIVY_VERSION} image \
+            --skip-dirs /usr/local/lib,/usr/src/app,/opt \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            ${IMAGE}
+
       # Login to DockerHub
       # - name: Login to DockerHub
       #   if: github.event_name != 'pull_request'
