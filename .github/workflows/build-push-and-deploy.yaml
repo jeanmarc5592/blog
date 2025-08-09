@@ -13,8 +13,6 @@ jobs:
   build_and_push:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    outputs:
-      image: ${{ steps.build_docker_image.outputs.image }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -130,7 +128,8 @@ jobs:
 
       - name: Pull Docker Image and Run Docker Container
         run: |
-          IMAGE="${{ needs.build_and_push.outputs.image }}"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          IMAGE="jonny5592/blog:${SHORT_SHA}"
 
           docker pull ${IMAGE}
           docker stack deploy -c docker-compose.yml --prune --with-registry-auth blog
