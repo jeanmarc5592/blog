@@ -3,10 +3,10 @@ name: Build, Push and Deploy
 on:
   push:
     branches:
-      - 'main'
+      - "main"
   pull_request:
     branches:
-      - 'main'
+      - "main"
   workflow_dispatch:
 
 jobs:
@@ -18,56 +18,65 @@ jobs:
         uses: actions/checkout@v2
 
       # Build for multiple platforms
-      - name: Setup QEMU
-        id: qemu 
-        uses: docker/setup-qemu-action@v1
-        with:
-          image: tonistiigi/binfmt:latest
-          platforms: all
+      # - name: Setup QEMU
+      #   id: qemu
+      #   uses: docker/setup-qemu-action@v1
+      #   with:
+      #     image: tonistiigi/binfmt:latest
+      #     platforms: all
 
       # Configure the Docker Image Meta Data
-      - name: Docker Meta Data
-        id: docker_meta
-        uses: docker/metadata-action@v3
-        with:
-          images: jonny5592/blog
-      
+      # - name: Docker Meta Data
+      #   id: docker_meta
+      #   uses: docker/metadata-action@v3
+      #   with:
+      #     images: jonny5592/blog
+
+      # Build new Docker Image
+      - name: Build Docker Image
+        id: build_docker_image
+        run: |
+          DOCKER_IMAGE=jonny5592/blog:latest
+
+          echo "Building Docker Image ${DOCKER_IMAGE}"
+          docker build . -t ${DOCKER_IMAGE}
+
       # Login to DockerHub
-      - name: Login to DockerHub
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v1
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+      # - name: Login to DockerHub
+      #   if: github.event_name != 'pull_request'
+      #   uses: docker/login-action@v1
+      #   with:
+      #     username: ${{ secrets.DOCKER_HUB_USERNAME }}
+      #     password: ${{ secrets.DOCKER_HUB_PASSWORD }}
 
       # Build Image and push to DockerHub Repository
-      - name: Build and Push
-        uses: docker/build-push-action@v2
-        with: 
-          context: .
-          file: ./Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.docker_meta.outputs.tags }}
-          labels: ${{ steps.docker_meta.outputs.labels }}
+      # - name: Build and Push
+      #   uses: docker/build-push-action@v2
+      #   with:
+      #     context: .
+      #     file: ./Dockerfile
+      #     push: ${{ github.event_name != 'pull_request' }}
+      #     tags: ${{ steps.docker_meta.outputs.tags }}
+      #     labels: ${{ steps.docker_meta.outputs.labels }}
 
-  deploy:
-    runs-on: self-hosted
-    needs: build_and_push
-    steps:
-      # Checkout Repository
-      - name: Checkout
-        uses: actions/checkout@v2
+  # deploy:
+  #   runs-on: self-hosted
+  #   needs: build_and_push
+  #   steps:
+  #     # Checkout Repository
+  #     - name: Checkout
+  #       uses: actions/checkout@v2
 
-      # Login to DockerHub
-      - name: Login to DockerHub
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v1
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+  #     # Login to DockerHub
+  #     - name: Login to DockerHub
+  #       if: github.event_name != 'pull_request'
+  #       uses: docker/login-action@v1
+  #       with:
+  #         username: ${{ secrets.DOCKER_HUB_USERNAME }}
+  #         password: ${{ secrets.DOCKER_HUB_PASSWORD }}
 
-      # Deploy Docker Container
-      - name: Pull Docker Image and Run Docker Container
-        run: |
-          docker pull jonny5592/blog:main
-          docker stack deploy -c docker-compose.yml --prune --with-registry-auth blog
+  #     # Deploy Docker Container
+  #     - name: Pull Docker Image and Run Docker Container
+  #       run: |
+  #         docker pull jonny5592/blog:latest
+  #         docker stack deploy -c docker-compose.yml --prune --with-registry-auth blog
