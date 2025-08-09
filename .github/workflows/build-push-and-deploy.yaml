@@ -70,7 +70,7 @@ jobs:
             aquasec/trivy:${TRIVY_VERSION} image \
               --format cyclonedx \
               --output /project/sbom-image-${SHORT_SHA}.cdx.json \
-              ${DOCKER_IMAGE}
+              ${IMAGE}
 
       - name: Scan Dependencies
         run: |
