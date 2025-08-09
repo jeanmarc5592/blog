@@ -63,7 +63,7 @@ jobs:
             --exit-code 1 \
             ${IMAGE}
 
-      - name: Scan Filesystem
+      - name: Scan Dependencies
         run: |
           echo "Using Trivy version ${TRIVY_VERSION}"
 
