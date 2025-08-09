@@ -32,12 +32,14 @@ jobs:
       #     images: jonny5592/blog
 
       - name: Set Globals
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           echo "TRIVY_VERSION=0.65.0" >> "$GITHUB_ENV"
           echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
       - name: Build Docker Image
+        if: github.event_name != 'pull_request'
         id: build_docker_image
         run: |
           DOCKER_IMAGE=jonny5592/blog:${SHORT_SHA}
@@ -48,6 +50,7 @@ jobs:
           echo "image=$DOCKER_IMAGE" >> "$GITHUB_OUTPUT"
 
       - name: Scan Docker Image
+        if: github.event_name != 'pull_request'
         id: scan_docker_image
         run: |
           IMAGE="${{ steps.build_docker_image.outputs.image }}"
@@ -75,6 +78,7 @@ jobs:
           echo "sbom_file=$SBOM_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Scan Dependencies
+        if: github.event_name != 'pull_request'
         id: scan_dependencies
         run: |
           SBOM_FILE=sbom-deps-${SHORT_SHA}.cdx.json
@@ -99,6 +103,7 @@ jobs:
           echo "sbom_file=$SBOM_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Upload SBOM artifacts
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: sboms-${{ env.SHORT_SHA }}
