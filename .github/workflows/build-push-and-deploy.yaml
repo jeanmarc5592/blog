@@ -37,12 +37,12 @@ jobs:
         shell: bash
         run: |
           echo "TRIVY_VERSION=0.65.0" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
       # Build new Docker Image
       - name: Build Docker Image
         id: build_docker_image
         run: |
-          SHORT_SHA=${GITHUB_SHA::7}
           DOCKER_IMAGE=jonny5592/blog:${SHORT_SHA}
 
           echo "Building Docker Image ${DOCKER_IMAGE}"
@@ -63,6 +63,15 @@ jobs:
             --exit-code 1 \
             ${IMAGE}
 
+          echo "Generating SBOM..."
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${{ github.workspace }}:/project" \
+            aquasec/trivy:${TRIVY_VERSION} image \
+              --format cyclonedx \
+              --output /project/sbom-image-${SHORT_SHA}.cdx.json \
+              ${DOCKER_IMAGE}
+
       - name: Scan Dependencies
         run: |
           echo "Using Trivy version ${TRIVY_VERSION}"
@@ -73,6 +82,14 @@ jobs:
             aquasec/trivy:${TRIVY_VERSION} fs \
               --severity CRITICAL,HIGH \
               --exit-code 1 \
+              /project
+
+          echo "Generating SBOM..."
+          docker run --rm \
+            -v "${{ github.workspace }}:/project" \
+            aquasec/trivy:${TRIVY_VERSION} fs \
+              --format cyclonedx \
+              --output /project/sbom-deps-${SHORT_SHA}.cdx.json \
               /project
 
       # Login to DockerHub
