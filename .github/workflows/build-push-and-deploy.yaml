@@ -101,7 +101,7 @@ jobs:
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sboms-${SHORT_SHA}
+          name: sboms-${{ env.SHORT_SHA }}
           path: |
             ${{ steps.scan_docker_image.outputs.sbom_file }}
             ${{ steps.scan_dependencies.outputs.sbom_file }}
