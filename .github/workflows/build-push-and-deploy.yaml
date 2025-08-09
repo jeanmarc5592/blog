@@ -13,7 +13,6 @@ jobs:
   build_and_push:
     runs-on: ubuntu-latest
     steps:
-      # Checkout Repository
       - name: Checkout
         uses: actions/checkout@v2
 
@@ -32,14 +31,12 @@ jobs:
       #   with:
       #     images: jonny5592/blog
 
-      # Set global variables
       - name: Set Globals
         shell: bash
         run: |
           echo "TRIVY_VERSION=0.65.0" >> "$GITHUB_ENV"
           echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
-      # Build new Docker Image
       - name: Build Docker Image
         id: build_docker_image
         run: |
@@ -51,8 +48,10 @@ jobs:
           echo "image=$DOCKER_IMAGE" >> "$GITHUB_OUTPUT"
 
       - name: Scan Docker Image
+        id: scan_docker_image
         run: |
           IMAGE="${{ steps.build_docker_image.outputs.image }}"
+          SBOM_FILE=sbom-image-${SHORT_SHA}.cdx.json
 
           echo "Scanning Docker Image using Trivy v${TRIVY_VERSION}"
           docker run --rm \
@@ -69,12 +68,16 @@ jobs:
             -v "${{ github.workspace }}:/project" \
             aquasec/trivy:${TRIVY_VERSION} image \
               --format cyclonedx \
-              --output /project/sbom-image-${SHORT_SHA}.cdx.json \
+              --scanners vuln \
+              --output /project/${SBOM_FILE} \
               ${IMAGE}
 
+          echo "sbom_file=$SBOM_FILE" >> "$GITHUB_OUTPUT"
+
       - name: Scan Dependencies
+        id: scan_dependencies
         run: |
-          echo "Using Trivy version ${TRIVY_VERSION}"
+          SBOM_FILE=sbom-deps-${SHORT_SHA}.cdx.json
 
           echo "Scanning Dependencies using Trivy v${TRIVY_VERSION}"
           docker run --rm \
@@ -89,8 +92,19 @@ jobs:
             -v "${{ github.workspace }}:/project" \
             aquasec/trivy:${TRIVY_VERSION} fs \
               --format cyclonedx \
-              --output /project/sbom-deps-${SHORT_SHA}.cdx.json \
+              --scanners vuln \
+              --output /project/${SBOM_FILE} \
               /project
+
+          echo "sbom_file=$SBOM_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sboms-${SHORT_SHA}
+          path: |
+            ${{ steps.scan_docker_image.outputs.sbom_file }}
+            ${{ steps.scan_dependencies.outputs.sbom_file }}
 
       # Login to DockerHub
       # - name: Login to DockerHub
